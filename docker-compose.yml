@@ -1,0 +1,59 @@
+# Long Horizon Cortex Mechanism — local + prod-parity stack.
+#
+# Postgres binds to 5433 on the host to avoid colliding with a local
+# Homebrew Postgres on 5432. Inside the docker network the service is
+# still reachable as `postgres:5432`.
+#
+# Usage:
+#   docker compose up -d postgres        # just the DB for `cargo run`
+#   docker compose up --build core       # full stack in containers
+#
+# Data persists in the `cortex_pg_data` named volume. Wipe it with
+# `docker compose down -v` to start clean.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cortex-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: cortex
+      POSTGRES_PASSWORD: cortex
+      POSTGRES_DB: cortex_dev
+    ports:
+      - "5433:5432"
+    volumes:
+      - cortex_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cortex -d cortex_dev"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  core:
+    build:
+      context: .
+      dockerfile: core/Dockerfile
+    container_name: cortex-core
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://cortex:cortex@postgres:5432/cortex_dev
+      MODEL_STORE_PATH: /data/models
+      WS_HOST: 0.0.0.0
+      WS_PORT: "8080"
+      VAULT_PATH: /vault
+      RUST_LOG: info,core=debug
+      CORS_ALLOW_ORIGIN: "*"
+    ports:
+      - "8080:8080"
+    volumes:
+      - cortex_models:/data/models
+      # Mount the mock KB read-only so /api/vault/ingest can see it.
+      - ./tests/mock-knowledge-base:/vault:ro
+
+volumes:
+  cortex_pg_data:
+  cortex_models:
