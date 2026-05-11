@@ -28,14 +28,17 @@ pub struct EngineSnapshot {
 
 pub enum EngineCommand {
     AddNode(Uuid),
-    AddEdge { pre: Uuid, post: Uuid, weight: f32 },
+    AddEdge { edge_id: Uuid, pre: Uuid, post: Uuid, weight: f32 },
     IngestBatch {
         nodes: Vec<Uuid>,
-        edges: Vec<(Uuid, Uuid, f32)>,
+        /// (edge_id, pre_id, post_id, initial_weight)
+        edges: Vec<(Uuid, Uuid, Uuid, f32)>,
         reply: oneshot::Sender<()>,
     },
     Stimulate { node_id: Uuid, current: f32, duration_ms: f32 },
     Snapshot(oneshot::Sender<EngineSnapshot>),
+    /// One-shot weight snapshot: returns Vec<(edge_id, weight)>.
+    WeightSnapshot(oneshot::Sender<Vec<(Uuid, f32)>>),
 }
 
 impl SimHandle {
@@ -44,15 +47,17 @@ impl SimHandle {
             .map_err(|_| "engine offline")
     }
 
-    pub async fn add_edge(&self, pre: Uuid, post: Uuid, weight: f32) -> Result<(), &'static str> {
-        self.cmd_tx.send(EngineCommand::AddEdge { pre, post, weight }).await
+    pub async fn add_edge(&self, edge_id: Uuid, pre: Uuid, post: Uuid, weight: f32)
+        -> Result<(), &'static str>
+    {
+        self.cmd_tx.send(EngineCommand::AddEdge { edge_id, pre, post, weight }).await
             .map_err(|_| "engine offline")
     }
 
     pub async fn ingest_batch(
         &self,
         nodes: Vec<Uuid>,
-        edges: Vec<(Uuid, Uuid, f32)>,
+        edges: Vec<(Uuid, Uuid, Uuid, f32)>,
     ) -> Result<(), &'static str> {
         let (tx, rx) = oneshot::channel();
         self.cmd_tx
@@ -74,6 +79,13 @@ impl SimHandle {
     pub async fn snapshot(&self) -> Result<EngineSnapshot, &'static str> {
         let (tx, rx) = oneshot::channel();
         self.cmd_tx.send(EngineCommand::Snapshot(tx)).await
+            .map_err(|_| "engine offline")?;
+        rx.await.map_err(|_| "engine dropped reply")
+    }
+
+    pub async fn weight_snapshot(&self) -> Result<Vec<(Uuid, f32)>, &'static str> {
+        let (tx, rx) = oneshot::channel();
+        self.cmd_tx.send(EngineCommand::WeightSnapshot(tx)).await
             .map_err(|_| "engine offline")?;
         rx.await.map_err(|_| "engine dropped reply")
     }
@@ -108,11 +120,13 @@ pub fn spawn_engine(tick_hz: u32) -> (SimHandle, tokio::task::JoinHandle<()>) {
                     let Some(cmd) = maybe_cmd else { break; };
                     match cmd {
                         EngineCommand::AddNode(id) => engine.add_neuron(id),
-                        EngineCommand::AddEdge { pre, post, weight } =>
-                            engine.add_edge(pre, post, weight),
+                        EngineCommand::AddEdge { edge_id, pre, post, weight } =>
+                            engine.add_edge(edge_id, pre, post, weight),
                         EngineCommand::IngestBatch { nodes, edges, reply } => {
                             for id in nodes { engine.add_neuron(id); }
-                            for (pre, post, w) in edges { engine.add_edge(pre, post, w); }
+                            for (edge_id, pre, post, w) in edges {
+                                engine.add_edge(edge_id, pre, post, w);
+                            }
                             let _ = reply.send(());
                         }
                         EngineCommand::Stimulate { node_id, current, duration_ms } =>
@@ -124,6 +138,9 @@ pub fn spawn_engine(tick_hz: u32) -> (SimHandle, tokio::task::JoinHandle<()>) {
                                 n_synapses: engine.n_synapses(),
                             };
                             let _ = reply.send(snap);
+                        }
+                        EngineCommand::WeightSnapshot(reply) => {
+                            let _ = reply.send(engine.weight_snapshot());
                         }
                     }
                 }

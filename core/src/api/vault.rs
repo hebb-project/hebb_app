@@ -54,8 +54,8 @@ pub async fn post_ingest(
 
     // Push the new subgraph into the live engine.
     let node_ids: Vec<Uuid> = db_nodes.iter().map(|n| n.id).collect();
-    let edge_tuples: Vec<(Uuid, Uuid, f32)> = db_edges.iter()
-        .map(|e| (e.pre_id, e.post_id, e.weight))
+    let edge_tuples: Vec<(Uuid, Uuid, Uuid, f32)> = db_edges.iter()
+        .map(|e| (e.id, e.pre_id, e.post_id, e.weight))
         .collect();
     let _ = engine.ingest_batch(node_ids, edge_tuples).await;
 

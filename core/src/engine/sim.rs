@@ -46,16 +46,21 @@ impl SimEngine {
             .or_insert_with(|| Box::new(LifNeuron::new(id)));
     }
 
-    pub fn add_edge(&mut self, pre: Uuid, post: Uuid, weight: f32) {
+    pub fn add_edge(&mut self, edge_id: Uuid, pre: Uuid, post: Uuid, weight: f32) {
         if pre == post { return; }
         if !self.fan_out_keys.insert((pre, post)) { return; }
         // Ensure endpoint neurons exist (defensive — DB should guarantee).
         self.add_neuron(pre);
         self.add_neuron(post);
-        let syn: Box<dyn Synapse> = Box::new(StdpSynapse::new(pre, post, weight));
+        let syn: Box<dyn Synapse> = Box::new(StdpSynapse::new(edge_id, pre, post, weight));
         let idx = self.synapses.len();
         self.synapses.push(syn);
         self.fan_in.entry(post).or_default().push(idx);
+    }
+
+    /// Snapshot of every synapse's current weight, keyed by stable edge id.
+    pub fn weight_snapshot(&self) -> Vec<(Uuid, f32)> {
+        self.synapses.iter().map(|s| (s.id(), s.weight())).collect()
     }
 
     pub fn inject(&mut self, node_id: Uuid, current: f32, duration_ms: f32) {

@@ -105,8 +105,8 @@ async fn hydrate_engine(pool: &db::PgPool, engine: &engine::SimHandle) -> anyhow
     }).await?;
 
     let n_ids: Vec<uuid::Uuid> = node_rows.iter().map(|n| n.id).collect();
-    let e_tuples: Vec<(uuid::Uuid, uuid::Uuid, f32)> = edge_rows.iter()
-        .map(|e| (e.pre_id, e.post_id, e.weight))
+    let e_tuples: Vec<(uuid::Uuid, uuid::Uuid, uuid::Uuid, f32)> = edge_rows.iter()
+        .map(|e| (e.id, e.pre_id, e.post_id, e.weight))
         .collect();
 
     let n = n_ids.len();

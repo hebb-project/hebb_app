@@ -105,16 +105,13 @@ pub async fn create_edge(
         return Err(CoreError::BadRequest("self-loops are not allowed".into()));
     }
     let engine = s.engine.clone();
-    let weight = new.weight;
-    let pre = new.pre_id;
-    let post = new.post_id;
     let row: EdgeRow = run_blocking(&s.pool, move |conn| {
         Ok(diesel::insert_into(edges::table)
             .values(&new)
             .returning(EdgeRow::as_returning())
             .get_result(conn)?)
     }).await?;
-    let _ = engine.add_edge(pre, post, weight).await;
+    let _ = engine.add_edge(row.id, row.pre_id, row.post_id, row.weight).await;
     Ok(ok(row))
 }
 

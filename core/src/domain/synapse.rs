@@ -21,6 +21,10 @@ pub struct SynapseCtx {
 }
 
 pub trait Synapse: Send + Sync + 'static {
+    /// Stable identifier matching the edges.id row in Postgres. The
+    /// engine publishes weight deltas keyed by this so frontend clients
+    /// can join against their already-fetched edges list.
+    fn id(&self) -> Uuid;
     fn pre_id(&self) -> Uuid;
     fn post_id(&self) -> Uuid;
 
@@ -48,6 +52,7 @@ pub trait Synapse: Send + Sync + 'static {
 /// weight is depressed proportional to `post_trace`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StdpSynapse {
+    pub id: Uuid,
     pub pre_id: Uuid,
     pub post_id: Uuid,
     pub weight: f32,
@@ -68,8 +73,9 @@ pub struct StdpSynapse {
 }
 
 impl StdpSynapse {
-    pub fn new(pre_id: Uuid, post_id: Uuid, weight: f32) -> Self {
+    pub fn new(id: Uuid, pre_id: Uuid, post_id: Uuid, weight: f32) -> Self {
         Self {
+            id,
             pre_id,
             post_id,
             weight: weight.clamp(0.0, 1.0),
@@ -87,6 +93,7 @@ impl StdpSynapse {
 }
 
 impl Synapse for StdpSynapse {
+    fn id(&self) -> Uuid { self.id }
     fn pre_id(&self) -> Uuid { self.pre_id }
     fn post_id(&self) -> Uuid { self.post_id }
     fn weight(&self) -> f32 { self.weight }
