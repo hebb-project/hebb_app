@@ -5,6 +5,7 @@ pub mod health;
 pub mod stimulate;
 pub mod state;
 pub mod vault;
+pub mod weights;
 pub mod ws;
 
 pub use state::AppState;
@@ -29,7 +30,9 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/graph/edges/:id", delete(graph::delete_edge))
         .route("/api/stimulate", post(stimulate::post_stimulate))
         .route("/api/vault/ingest", post(vault::post_ingest))
+        .route("/api/graph/weights", get(weights::get_weights_snapshot))
         .route("/ws/spikes", get(ws::ws_spikes))
+        .route("/ws/weights", get(weights::ws_weights))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(state)

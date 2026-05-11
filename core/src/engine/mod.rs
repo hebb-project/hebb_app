@@ -5,7 +5,7 @@
 pub mod events;
 pub mod sim;
 
-pub use events::{SpikeEvent, SpikeFrame};
+pub use events::{SpikeEvent, SpikeFrame, WeightDelta, WeightFrame};
 pub use sim::SimEngine;
 
 use std::time::Duration;
@@ -18,6 +18,7 @@ use uuid::Uuid;
 pub struct SimHandle {
     cmd_tx: mpsc::Sender<EngineCommand>,
     pub spikes: broadcast::Sender<SpikeFrame>,
+    pub weights: broadcast::Sender<WeightFrame>,
 }
 
 pub struct EngineSnapshot {
@@ -96,8 +97,15 @@ impl SimHandle {
 pub fn spawn_engine(tick_hz: u32) -> (SimHandle, tokio::task::JoinHandle<()>) {
     let (cmd_tx, mut cmd_rx) = mpsc::channel::<EngineCommand>(256);
     let (spike_tx, _) = broadcast::channel::<SpikeFrame>(1024);
+    let (weight_tx, _) = broadcast::channel::<WeightFrame>(256);
 
-    let handle = SimHandle { cmd_tx, spikes: spike_tx.clone() };
+    let handle = SimHandle {
+        cmd_tx,
+        spikes: spike_tx.clone(),
+        weights: weight_tx.clone(),
+    };
+
+    spawn_weight_watcher(handle.clone(), weight_tx);
 
     let dt_ms = 1000.0 / tick_hz as f32;
     let tick_dur = Duration::from_secs_f32(dt_ms / 1000.0);
@@ -151,4 +159,65 @@ pub fn spawn_engine(tick_hz: u32) -> (SimHandle, tokio::task::JoinHandle<()>) {
     });
 
     (handle, join)
+}
+
+/// Periodically diff the live weight set against the last published one
+/// and broadcast deltas. Runs as a sibling task to the engine — reads
+/// state through `SimHandle::weight_snapshot` (one mpsc round-trip) so
+/// it doesn't share memory with the engine.
+///
+/// `WEIGHT_TICK_MS` controls the broadcast rate; `WEIGHT_EPSILON` the
+/// minimum change to publish (filters STDP trace noise on edges that
+/// are essentially stable).
+fn spawn_weight_watcher(handle: SimHandle, tx: broadcast::Sender<WeightFrame>) {
+    const WEIGHT_TICK_MS: u64 = 250;
+    const WEIGHT_EPSILON: f32 = 0.0015;
+    const FORCE_FULL_EVERY: u32 = 40; // ~10s — keeps late subscribers honest.
+
+    tokio::spawn(async move {
+        let mut last: std::collections::HashMap<Uuid, f32> = std::collections::HashMap::new();
+        let mut since_full: u32 = u32::MAX; // force a full first frame.
+        let mut interval = tokio::time::interval(std::time::Duration::from_millis(WEIGHT_TICK_MS));
+
+        loop {
+            interval.tick().await;
+            let snap = match handle.weight_snapshot().await {
+                Ok(s) => s,
+                Err(_) => break,
+            };
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs_f64() * 1000.0)
+                .unwrap_or(0.0);
+
+            let send_full = since_full >= FORCE_FULL_EVERY;
+            let deltas: Vec<WeightDelta> = if send_full {
+                snap.iter().map(|(id, w)| WeightDelta { edge_id: *id, w: *w }).collect()
+            } else {
+                snap.iter()
+                    .filter_map(|(id, w)| {
+                        let prev = last.get(id).copied().unwrap_or(f32::NAN);
+                        if !prev.is_finite() || (w - prev).abs() >= WEIGHT_EPSILON {
+                            Some(WeightDelta { edge_id: *id, w: *w })
+                        } else { None }
+                    })
+                    .collect()
+            };
+
+            // Refresh `last` snapshot.
+            last.clear();
+            for (id, w) in &snap { last.insert(*id, *w); }
+
+            if deltas.is_empty() && !send_full { continue; }
+
+            let frame = if send_full {
+                since_full = 0;
+                WeightFrame::snapshot(now, deltas)
+            } else {
+                since_full = since_full.saturating_add(1);
+                WeightFrame::delta(now, deltas)
+            };
+            let _ = tx.send(frame);
+        }
+    });
 }
