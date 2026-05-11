@@ -10,6 +10,9 @@ import { DEFAULT_PALETTE, type StateKey } from "@/lib/state";
 const CHAT_WIDTH = 320;
 const DRIVES_WIDTH = 360;
 const NODE_COUNT = 140;
+// Enable live mode by default in dev; flip off (or set NEXT_PUBLIC_CORTEX_LIVE=0)
+// when the Rust core isn't running, to fall back to the mock animator.
+const LIVE = process.env.NEXT_PUBLIC_CORTEX_LIVE !== "0";
 
 export default function Home() {
   const [stateKey, setStateKey] = useState<StateKey>("idle");
@@ -37,6 +40,7 @@ export default function Home() {
           nodeCount={NODE_COUNT}
           palette={DEFAULT_PALETTE}
           onSpikeRate={setSpikeRate}
+          live={LIVE}
         />
         <DriveDashboard width={DRIVES_WIDTH} stateKey={stateKey} palette={DEFAULT_PALETTE} />
       </div>

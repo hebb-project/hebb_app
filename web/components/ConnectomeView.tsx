@@ -2,9 +2,21 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { STATE_PRESETS, type Palette, type StateKey } from "@/lib/state";
+import {
+  cortexHttpBase,
+  cortexWsUrl,
+  fetchGraph,
+  postStimulate,
+  type CortexEdge,
+  type CortexNode,
+  type CortexSpikeFrame,
+} from "@/lib/cortex-api";
 
-type Node = {
+type GraphNode = {
   i: number;
+  id?: string;          // uuid in live mode
+  label?: string;       // human label in live mode
+  nodeType?: string;
   x: number;
   y: number;
   r: number;
@@ -14,9 +26,9 @@ type Node = {
   neighbors: number[];
 };
 
-type Edge = { a: number; b: number; len: number; longRange?: boolean };
+type GraphEdge = { a: number; b: number; len: number; longRange?: boolean };
 
-type Graph = { nodes: Node[]; edges: Edge[] };
+type Graph = { nodes: GraphNode[]; edges: GraphEdge[]; idToIndex: Map<string, number> };
 
 type Spike = { from: number; to: number; t0: number; dur: number };
 
@@ -34,6 +46,8 @@ type View = { scale: number; tx: number; ty: number };
 
 const MIN_SCALE = 0.15;
 const MAX_SCALE = 12;
+
+// ── Graph builders ────────────────────────────────────────────────────────
 
 function buildConnectome(nodeCount: number, w: number, h: number, seed = 7): Graph {
   let s = seed >>> 0;
@@ -58,7 +72,7 @@ function buildConnectome(nodeCount: number, w: number, h: number, seed = 7): Gra
     return clusters[clusters.length - 1];
   };
 
-  const nodes: Node[] = [];
+  const nodes: GraphNode[] = [];
   for (let i = 0; i < nodeCount; i++) {
     const c = pickCluster();
     const u1 = (rand() + rand()) * 0.5 - 0.5;
@@ -78,7 +92,7 @@ function buildConnectome(nodeCount: number, w: number, h: number, seed = 7): Gra
     });
   }
 
-  const edges: Edge[] = [];
+  const edges: GraphEdge[] = [];
   const seen = new Set<string>();
   const k = 3;
   for (let i = 0; i < nodes.length; i++) {
@@ -118,8 +132,89 @@ function buildConnectome(nodeCount: number, w: number, h: number, seed = 7): Gra
     nodes[j].neighbors.push(i);
   }
 
-  return { nodes, edges };
+  return { nodes, edges, idToIndex: new Map() };
 }
+
+/**
+ * Lay out a real graph from the API. Nodes are grouped into spatial
+ * clusters by `node_type` (concept / entity / log / stub / ...) so the
+ * visualization stays readable as the vault grows.
+ */
+function buildFromApi(
+  apiNodes: CortexNode[],
+  apiEdges: CortexEdge[],
+  w: number,
+  h: number,
+  seed = 11,
+): Graph {
+  let s = seed >>> 0;
+  const rand = () => {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    return s / 0xffffffff;
+  };
+
+  // Bucket by node_type, then assign a cluster center per bucket.
+  const buckets = new Map<string, CortexNode[]>();
+  for (const n of apiNodes) {
+    const k = n.node_type || "concept";
+    if (!buckets.has(k)) buckets.set(k, []);
+    buckets.get(k)!.push(n);
+  }
+  const types = Array.from(buckets.keys());
+  const centers = new Map<string, { cx: number; cy: number; r: number }>();
+  types.forEach((t, idx) => {
+    // Lay clusters around the unit circle.
+    const theta = (idx / Math.max(1, types.length)) * Math.PI * 2;
+    const cx = 0.5 + Math.cos(theta) * 0.28;
+    const cy = 0.5 + Math.sin(theta) * 0.28;
+    centers.set(t, { cx, cy, r: 0.16 });
+  });
+
+  // Pre-assign indices in deterministic order so the WS spike events
+  // can find their target reliably across renders.
+  const nodes: GraphNode[] = [];
+  const idToIndex = new Map<string, number>();
+  const ordered = [...apiNodes].sort((a, b) => a.id.localeCompare(b.id));
+  for (const n of ordered) {
+    const c = centers.get(n.node_type) ?? { cx: 0.5, cy: 0.5, r: 0.2 };
+    const u1 = (rand() + rand()) * 0.5 - 0.5;
+    const u2 = (rand() + rand()) * 0.5 - 0.5;
+    const x = (c.cx + u1 * c.r * 2) * w;
+    const y = (c.cy + u2 * c.r * 2) * h;
+    const i = nodes.length;
+    idToIndex.set(n.id, i);
+    nodes.push({
+      i,
+      id: n.id,
+      label: n.label,
+      nodeType: n.node_type,
+      x: Math.max(24, Math.min(w - 24, x)),
+      y: Math.max(24, Math.min(h - 24, y)),
+      r: 2.4 + rand() * 1.6,
+      // Mark non-stub, non-entity types as "hot" for the pink highlight.
+      hot: n.node_type !== "stub" && rand() < 0.18,
+      fire: 0,
+      hotFire: 0,
+      neighbors: [],
+    });
+  }
+
+  const edges: GraphEdge[] = [];
+  for (const e of apiEdges) {
+    const a = idToIndex.get(e.pre_id);
+    const b = idToIndex.get(e.post_id);
+    if (a === undefined || b === undefined || a === b) continue;
+    const dx = nodes[a].x - nodes[b].x;
+    const dy = nodes[a].y - nodes[b].y;
+    edges.push({ a, b, len: Math.sqrt(dx * dx + dy * dy), longRange: e.weight > 0.75 });
+    nodes[a].neighbors.push(b);
+    nodes[b].neighbors.push(a);
+  }
+
+  return { nodes, edges, idToIndex };
+}
+
+// ── Component ─────────────────────────────────────────────────────────────
 
 type Props = {
   stateKey: StateKey;
@@ -127,6 +222,15 @@ type Props = {
   palette: Palette;
   wireframe?: boolean;
   onSpikeRate?: (sps: number) => void;
+  /** Connect to the Rust core via /api/graph + /ws/spikes. */
+  live?: boolean;
+  /** Override base URL (http://host:port). */
+  cortexHttp?: string;
+  /** Override WS URL. */
+  cortexWs?: string;
+  /** Current to inject on node click (live mode). */
+  clickStimulusCurrent?: number;
+  clickStimulusDurationMs?: number;
 };
 
 export function ConnectomeView({
@@ -135,12 +239,22 @@ export function ConnectomeView({
   palette,
   wireframe = false,
   onSpikeRate,
+  live = false,
+  cortexHttp,
+  cortexWs,
+  clickStimulusCurrent = 40,
+  clickStimulusDurationMs = 400,
 }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const viewRef = useRef<View>({ scale: 1, tx: 0, ty: 0 });
   const [zoomPct, setZoomPct] = useState(100);
   const [panning, setPanning] = useState(false);
+  const [wsState, setWsState] = useState<"idle" | "connecting" | "open" | "closed">(
+    live ? "connecting" : "idle",
+  );
+  const [graphMeta, setGraphMeta] = useState<{ nodes: number; edges: number } | null>(null);
+  const [hoverLabel, setHoverLabel] = useState<string | null>(null);
 
   const colors = useMemo<Colors>(
     () => ({
@@ -152,15 +266,22 @@ export function ConnectomeView({
       pink: palette.pink,
       nodeIdle: "rgba(125,249,255,0.30)",
     }),
-    [palette]
+    [palette],
   );
 
-  const propsRef = useRef({ stateKey, colors, wireframe, onSpikeRate });
+  // Holds the (mutable) live graph. Populated by the fetch effect, read
+  // by the animation effect via a ref so we don't re-run animation on
+  // every fetch.
+  const apiGraphRef = useRef<{ nodes: CortexNode[]; edges: CortexEdge[] } | null>(null);
+  // Queue of node indices that the WS told us fired since the last frame.
+  const pendingSpikesRef = useRef<number[]>([]);
+
+  const propsRef = useRef({ stateKey, colors, wireframe, onSpikeRate, live });
   useEffect(() => {
-    propsRef.current = { stateKey, colors, wireframe, onSpikeRate };
+    propsRef.current = { stateKey, colors, wireframe, onSpikeRate, live };
   });
 
-  // Native wheel listener so we can preventDefault (React's onWheel is passive).
+  // ── Trackpad zoom / pan ───────────────────────────────────────────
   useEffect(() => {
     const wrap = wrapRef.current;
     if (!wrap) return;
@@ -171,7 +292,6 @@ export function ConnectomeView({
       const v = viewRef.current;
       const newScale = clampScale(v.scale * factor);
       const k = newScale / v.scale;
-      // Keep the world point under the cursor anchored.
       v.tx = mx - (mx - v.tx) * k;
       v.ty = my - (my - v.ty) * k;
       v.scale = newScale;
@@ -179,25 +299,22 @@ export function ConnectomeView({
     };
 
     const onWheel = (e: WheelEvent) => {
-      // Always prevent the page from scrolling/zooming behind us.
       e.preventDefault();
       const rect = wrap.getBoundingClientRect();
       const mx = e.clientX - rect.left;
       const my = e.clientY - rect.top;
-      // macOS trackpad pinch sets ctrlKey; ctrl/cmd + scroll also zooms.
       if (e.ctrlKey || e.metaKey) {
         const factor = Math.exp(-e.deltaY * 0.01);
         zoomAt(mx, my, factor);
       } else {
-        // Two-finger scroll = pan (Figma-style).
         const v = viewRef.current;
         v.tx -= e.deltaX;
         v.ty -= e.deltaY;
       }
     };
 
-    // Click-and-drag with space or middle mouse to pan as a fallback.
     let dragging = false;
+    let dragMoved = false;
     let lastX = 0;
     let lastY = 0;
     let spaceDown = false;
@@ -217,6 +334,7 @@ export function ConnectomeView({
     const onPointerDown = (e: PointerEvent) => {
       if (e.button === 1 || (e.button === 0 && spaceDown)) {
         dragging = true;
+        dragMoved = false;
         lastX = e.clientX;
         lastY = e.clientY;
         wrap.setPointerCapture(e.pointerId);
@@ -230,13 +348,17 @@ export function ConnectomeView({
       v.ty += e.clientY - lastY;
       lastX = e.clientX;
       lastY = e.clientY;
+      dragMoved = true;
     };
     const onPointerUp = (e: PointerEvent) => {
       if (dragging) {
         dragging = false;
-        try {
-          wrap.releasePointerCapture(e.pointerId);
-        } catch {}
+        try { wrap.releasePointerCapture(e.pointerId); } catch {}
+      }
+      // Suppress the synthetic click that follows a real pan-drag.
+      if (dragMoved) {
+        e.preventDefault();
+        e.stopPropagation();
       }
     };
 
@@ -257,7 +379,6 @@ export function ConnectomeView({
     };
   }, []);
 
-  // Zoom buttons (anchored to viewport center).
   const zoomCenter = (factor: number) => {
     const wrap = wrapRef.current;
     if (!wrap) return;
@@ -277,6 +398,110 @@ export function ConnectomeView({
     setZoomPct(100);
   };
 
+  // ── Live mode: fetch the real graph once on mount ─────────────────
+  useEffect(() => {
+    if (!live) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const g = await fetchGraph(cortexHttp);
+        if (cancelled) return;
+        apiGraphRef.current = g;
+        setGraphMeta({ nodes: g.nodes.length, edges: g.edges.length });
+      } catch (err) {
+        console.warn("[connectome] fetchGraph failed", err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [live, cortexHttp]);
+
+  // ── Live mode: WS subscription. Reconnects with backoff. ──────────
+  useEffect(() => {
+    if (!live) return;
+    let stopped = false;
+    let ws: WebSocket | null = null;
+    let retry = 0;
+
+    const connect = () => {
+      if (stopped) return;
+      const url = cortexWsUrl(cortexWs);
+      setWsState("connecting");
+      ws = new WebSocket(url);
+      ws.onopen = () => { retry = 0; setWsState("open"); };
+      ws.onclose = () => {
+        setWsState("closed");
+        if (stopped) return;
+        retry = Math.min(retry + 1, 8);
+        const delay = 250 * Math.pow(1.8, retry);
+        setTimeout(connect, delay);
+      };
+      ws.onerror = () => { /* onclose will handle reconnect */ };
+      ws.onmessage = (ev) => {
+        try {
+          const frame: CortexSpikeFrame = JSON.parse(ev.data);
+          // We can't resolve uuid→index here because the animation graph
+          // lives inside the rAF effect; stash the raw ids and let that
+          // effect map them when it picks them up.
+          (pendingSpikesRef as unknown as { current: (string | number)[] }).current.push(
+            ...frame.events.map((e) => e.node_id as unknown as string),
+          );
+        } catch {}
+      };
+    };
+    connect();
+
+    return () => {
+      stopped = true;
+      try { ws?.close(); } catch {}
+    };
+  }, [live, cortexWs]);
+
+  // ── Click to stimulate ────────────────────────────────────────────
+  useEffect(() => {
+    if (!live) return;
+    const wrap = wrapRef.current;
+    const canvas = canvasRef.current;
+    if (!wrap || !canvas) return;
+
+    let downX = 0, downY = 0, downT = 0;
+    const onDown = (e: MouseEvent) => {
+      if (e.button !== 0) return;
+      downX = e.clientX;
+      downY = e.clientY;
+      downT = performance.now();
+    };
+    const onClick = async (e: MouseEvent) => {
+      const dx = e.clientX - downX;
+      const dy = e.clientY - downY;
+      // Real click, not a drag.
+      if (Math.hypot(dx, dy) > 4 || performance.now() - downT > 350) return;
+      const rect = canvas.getBoundingClientRect();
+      const sx = e.clientX - rect.left;
+      const sy = e.clientY - rect.top;
+      // Map screen → world via current view.
+      const v = viewRef.current;
+      const wx = (sx - v.tx) / v.scale;
+      const wy = (sy - v.ty) / v.scale;
+
+      const idx = (canvas as unknown as { _hitTest?: (x: number, y: number) => string | null })
+        ._hitTest?.(wx, wy);
+      if (!idx) return;
+      try {
+        await postStimulate(idx, clickStimulusCurrent, clickStimulusDurationMs, cortexHttp);
+      } catch (err) {
+        console.warn("[connectome] stimulate failed", err);
+      }
+    };
+
+    wrap.addEventListener("pointerdown", onDown);
+    wrap.addEventListener("click", onClick);
+    return () => {
+      wrap.removeEventListener("pointerdown", onDown);
+      wrap.removeEventListener("click", onClick);
+    };
+  }, [live, cortexHttp, clickStimulusCurrent, clickStimulusDurationMs]);
+
+  // ── Main animation loop ───────────────────────────────────────────
   useEffect(() => {
     const wrap = wrapRef.current;
     const canvas = canvasRef.current;
@@ -293,6 +518,18 @@ export function ConnectomeView({
       spikeWindow: [] as number[],
       lastReport: 0,
       size: { w: 0, h: 0 },
+      hoverIdx: null as number | null,
+    };
+
+    const rebuild = () => {
+      const w = state.size.w;
+      const h = state.size.h;
+      if (live && apiGraphRef.current) {
+        state.graph = buildFromApi(apiGraphRef.current.nodes, apiGraphRef.current.edges, w, h);
+      } else {
+        state.graph = buildConnectome(nodeCount, w, h);
+      }
+      state.spikes = [];
     };
 
     const resize = () => {
@@ -305,15 +542,43 @@ export function ConnectomeView({
       canvas.style.height = h + "px";
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       state.size = { w, h };
-      state.graph = buildConnectome(nodeCount, w, h);
-      state.spikes = [];
+      rebuild();
     };
     resize();
+
+    // Install hit-tester for the click handler.
+    (canvas as unknown as { _hitTest?: (x: number, y: number) => string | null })._hitTest =
+      (x: number, y: number) => {
+        const g = state.graph;
+        if (!g) return null;
+        let best = -1;
+        let bestD2 = Infinity;
+        for (const n of g.nodes) {
+          const dx = n.x - x;
+          const dy = n.y - y;
+          const d2 = dx * dx + dy * dy;
+          const r = Math.max(10, n.r * 4);
+          if (d2 < r * r && d2 < bestD2) { best = n.i; bestD2 = d2; }
+        }
+        if (best < 0) return null;
+        return g.nodes[best].id ?? null;
+      };
 
     const ro = new ResizeObserver(resize);
     ro.observe(wrap);
 
-    const spawnSpike = (now: number) => {
+    // If live graph arrives after first build, rebuild once it shows up.
+    let livePoll: number | null = null;
+    if (live) {
+      const tryRebuild = () => {
+        if (apiGraphRef.current && state.graph && state.graph.idToIndex.size === 0) {
+          rebuild();
+        }
+      };
+      livePoll = window.setInterval(tryRebuild, 300);
+    }
+
+    const spawnRandomSpike = (now: number) => {
       const g = state.graph;
       if (!g) return;
       const startIdx = Math.floor(Math.random() * g.nodes.length);
@@ -328,10 +593,27 @@ export function ConnectomeView({
       state.spikeWindow.push(now);
     };
 
+    const spawnSpikeFromNode = (idx: number, now: number) => {
+      const g = state.graph;
+      if (!g) return;
+      const node = g.nodes[idx];
+      if (!node) return;
+      node.fire = Math.min(1, node.fire + 0.95);
+      if (node.hot) node.hotFire = Math.min(1, node.hotFire + 0.9);
+      state.spikeWindow.push(now);
+      if (!node.neighbors.length) return;
+      const dest = node.neighbors[Math.floor(Math.random() * node.neighbors.length)];
+      const dx = g.nodes[dest].x - node.x;
+      const dy = g.nodes[dest].y - node.y;
+      const len = Math.sqrt(dx * dx + dy * dy);
+      const duration = 200 + len * 1.1;
+      state.spikes.push({ from: idx, to: dest, t0: now, dur: duration });
+    };
+
     let rafId = 0;
 
     const step = (now: number) => {
-      const { stateKey, colors, wireframe, onSpikeRate } = propsRef.current;
+      const { stateKey, colors, wireframe, onSpikeRate, live } = propsRef.current;
       const preset = STATE_PRESETS[stateKey];
       const intensity = preset.intensity;
       const paused = stateKey === "offline";
@@ -340,11 +622,23 @@ export function ConnectomeView({
       const dt = Math.min(80, now - state.lastT);
       state.lastT = now;
 
-      if (!paused) {
+      // Drain WS-driven spikes (live) or run the synthetic ticker (mock).
+      if (live) {
+        const g = state.graph;
+        const queue = pendingSpikesRef.current as unknown as string[];
+        if (g && queue.length) {
+          // Bound work per frame so a flood doesn't stall the render loop.
+          const batch = queue.splice(0, Math.min(queue.length, 200));
+          for (const id of batch) {
+            const idx = g.idToIndex.get(id);
+            if (idx !== undefined) spawnSpikeFromNode(idx, now);
+          }
+        }
+      } else if (!paused) {
         const targetSps = 2 + intensity * intensity * 110;
         state.spawnAcc += (targetSps * dt) / 1000;
         while (state.spawnAcc >= 1) {
-          spawnSpike(now);
+          spawnRandomSpike(now);
           state.spawnAcc -= 1;
         }
       }
@@ -378,35 +672,37 @@ export function ConnectomeView({
           const dst = g.nodes[sp.to];
           dst.fire = Math.min(1, dst.fire + 0.9);
           if (dst.hot) dst.hotFire = Math.min(1, dst.hotFire + 0.85);
-          const cascadeP = 0.18 + intensity * 0.55;
-          if (!paused && Math.random() < cascadeP && dst.neighbors.length) {
-            let nbr = dst.neighbors[Math.floor(Math.random() * dst.neighbors.length)];
-            if (nbr === sp.from && dst.neighbors.length > 1 && Math.random() < 0.6) {
-              nbr = dst.neighbors[Math.floor(Math.random() * dst.neighbors.length)];
+          // In live mode we don't fake a cascade; real cascades arrive
+          // as separate spike events. Mock keeps the existing behavior.
+          if (!live && !paused) {
+            const cascadeP = 0.18 + intensity * 0.55;
+            if (Math.random() < cascadeP && dst.neighbors.length) {
+              let nbr = dst.neighbors[Math.floor(Math.random() * dst.neighbors.length)];
+              if (nbr === sp.from && dst.neighbors.length > 1 && Math.random() < 0.6) {
+                nbr = dst.neighbors[Math.floor(Math.random() * dst.neighbors.length)];
+              }
+              const a = dst;
+              const b = g.nodes[nbr];
+              const dx = b.x - a.x;
+              const dy = b.y - a.y;
+              const len = Math.sqrt(dx * dx + dy * dy);
+              next.push({ from: sp.to, to: nbr, t0: now, dur: 240 + len * 1.2 });
+              state.spikeWindow.push(now);
             }
-            const a = dst;
-            const b = g.nodes[nbr];
-            const dx = b.x - a.x;
-            const dy = b.y - a.y;
-            const len = Math.sqrt(dx * dx + dy * dy);
-            next.push({ from: sp.to, to: nbr, t0: now, dur: 240 + len * 1.2 });
-            state.spikeWindow.push(now);
           }
           continue;
         }
         next.push(sp);
       }
-      state.spikes = next.slice(-1200);
+      state.spikes = next.slice(-1600);
 
-      // ── Render ────────────────────────────────────────────────────────
+      // ── Render ──────────────────────────────────────────────────────
       ctx.clearRect(0, 0, w, h);
       ctx.fillStyle = colors.bg;
       ctx.fillRect(0, 0, w, h);
 
       const view = viewRef.current;
 
-      // Grid in world space — moves and scales with content (Figma-like).
-      // Step adapts so the grid never gets too dense/sparse on the screen.
       ctx.save();
       ctx.translate(view.tx, view.ty);
       ctx.scale(view.scale, view.scale);
@@ -416,7 +712,6 @@ export function ConnectomeView({
       while (gridStep * view.scale < 40) gridStep *= 2;
       while (gridStep * view.scale > 160) gridStep /= 2;
 
-      // Visible world rect.
       const wx0 = -view.tx / view.scale;
       const wy0 = -view.ty / view.scale;
       const wx1 = wx0 + w / view.scale;
@@ -437,7 +732,6 @@ export function ConnectomeView({
       }
       ctx.stroke();
 
-      // Edges.
       if (wireframe) {
         ctx.strokeStyle = colors.edge;
         ctx.lineWidth = 1 / view.scale;
@@ -469,7 +763,6 @@ export function ConnectomeView({
         }
       }
 
-      // Spikes.
       if (!wireframe) {
         for (const sp of state.spikes) {
           const p = Math.min(1, (now - sp.t0) / sp.dur);
@@ -495,7 +788,6 @@ export function ConnectomeView({
         }
       }
 
-      // Nodes.
       for (const n of g.nodes) {
         if (wireframe) {
           ctx.strokeStyle = colors.edgeStrong;
@@ -514,7 +806,7 @@ export function ConnectomeView({
             0,
             useHot
               ? `rgba(255,93,143,${0.6 * n.hotFire})`
-              : `rgba(125,249,255,${0.55 * n.fire})`
+              : `rgba(125,249,255,${0.55 * n.fire})`,
           );
           g1.addColorStop(1, "rgba(0,0,0,0)");
           ctx.fillStyle = g1;
@@ -539,13 +831,53 @@ export function ConnectomeView({
     };
     rafId = requestAnimationFrame(step);
 
+    // Hover label tracking — separate from the click handler so it
+    // works in both live and mock modes.
+    const onMove = (e: MouseEvent) => {
+      const rect = canvas.getBoundingClientRect();
+      const sx = e.clientX - rect.left;
+      const sy = e.clientY - rect.top;
+      const v = viewRef.current;
+      const wx = (sx - v.tx) / v.scale;
+      const wy = (sy - v.ty) / v.scale;
+      const g = state.graph;
+      if (!g) return;
+      let best = -1;
+      let bestD2 = Infinity;
+      for (const n of g.nodes) {
+        const dx = n.x - wx;
+        const dy = n.y - wy;
+        const d2 = dx * dx + dy * dy;
+        const r = Math.max(10, n.r * 4);
+        if (d2 < r * r && d2 < bestD2) { best = n.i; bestD2 = d2; }
+      }
+      if (best >= 0) {
+        const lbl = g.nodes[best].label ?? null;
+        if (lbl !== state.hoverIdx as unknown as string | null) {
+          state.hoverIdx = best as unknown as number;
+          setHoverLabel(lbl);
+        }
+      } else if (state.hoverIdx !== null) {
+        state.hoverIdx = null;
+        setHoverLabel(null);
+      }
+    };
+    wrap.addEventListener("mousemove", onMove);
+
     return () => {
       ro.disconnect();
       cancelAnimationFrame(rafId);
+      if (livePoll) clearInterval(livePoll);
+      wrap.removeEventListener("mousemove", onMove);
     };
-  }, [nodeCount]);
+  }, [nodeCount, live]);
 
   const preset = STATE_PRESETS[stateKey];
+  const overlayLabel = live
+    ? wsState === "open"
+      ? `live · ws://core/spikes · ${graphMeta?.nodes ?? "?"} nodes`
+      : `live · connecting…`
+    : "connectome · placeholder · awaiting ws://core/spikes";
 
   return (
     <main className="panel connectome">
@@ -555,7 +887,7 @@ export function ConnectomeView({
           style={{
             position: "absolute",
             inset: 0,
-            cursor: panning ? "grabbing" : "default",
+            cursor: panning ? "grabbing" : live ? "crosshair" : "default",
             touchAction: "none",
             overscrollBehavior: "contain",
           }}
@@ -568,7 +900,12 @@ export function ConnectomeView({
         <div className="connectome-overlay">
           <div className="overlay-top">
             <div className="overlay-label mono">
-              connectome · placeholder · awaiting <span className="hl">ws://core/spikes</span>
+              {overlayLabel}
+              {hoverLabel && (
+                <span style={{ marginLeft: 12, color: "rgba(255,255,255,0.7)" }}>
+                  ▸ {hoverLabel}
+                </span>
+              )}
             </div>
             <div className="overlay-legend mono">
               <span><i className="dot dot-cyan" /> firing</span>
@@ -584,8 +921,8 @@ export function ConnectomeView({
           </div>
           <div className="overlay-bottom">
             <div className="overlay-readout mono">
-              <span>nodes <b>{nodeCount}</b></span>
-              <span>edges <b>~{Math.round(nodeCount * 3.4)}</b></span>
+              <span>nodes <b>{graphMeta?.nodes ?? nodeCount}</b></span>
+              <span>edges <b>{graphMeta?.edges ?? Math.round(nodeCount * 3.4)}</b></span>
               <span>i <b>{preset.intensity.toFixed(2)}</b></span>
               <span>zoom <b>{zoomPct}%</b></span>
             </div>
