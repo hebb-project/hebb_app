@@ -53,7 +53,16 @@ pub fn parse_vault(root: &Path) -> std::io::Result<VaultParseSummary> {
         summary.files_seen += 1;
         let rel = path.strip_prefix(root).unwrap_or(path).to_path_buf();
         let label = label_from_path(&rel);
-        let raw = std::fs::read_to_string(path)?;
+        // Tolerate per-file read failures (e.g. macOS Docker Desktop's
+        // intermittent EDEADLK on bind-mounted files) — one bad file
+        // shouldn't bork an entire vault ingest.
+        let raw = match std::fs::read_to_string(path) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!(path = %path.display(), error = %e, "skipping unreadable file");
+                continue;
+            }
+        };
         let (frontmatter, body) = split_frontmatter(&raw);
 
         let mut metadata = serde_json::Map::new();

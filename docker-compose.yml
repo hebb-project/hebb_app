@@ -51,8 +51,11 @@ services:
       - "8080:8080"
     volumes:
       - cortex_models:/data/models
-      # Mount the mock KB read-only so /api/vault/ingest can see it.
-      - ./tests/mock-knowledge-base:/vault:ro
+      # /vault is baked into the image (the mock KB fixture) so the
+      # default demo doesn't depend on Docker Desktop's macOS bind-mount
+      # layer, which has known EDEADLK races on file reads under
+      # virtiofs/grpcfuse. For your own vault, add a bind mount here:
+      #   - /absolute/path/to/your/vault:/vault:ro
 
 volumes:
   cortex_pg_data:
