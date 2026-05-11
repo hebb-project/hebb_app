@@ -75,7 +75,7 @@ impl StdpSynapse {
             weight: weight.clamp(0.0, 1.0),
             w_min: 0.0,
             w_max: 1.0,
-            g_syn: 25.0,
+            g_syn: 80.0,
             a_plus: 0.01,
             a_minus: 0.012,
             tau_plus: 20.0,
