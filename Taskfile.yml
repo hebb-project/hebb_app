@@ -158,6 +158,21 @@ tasks:
       - task: core:run &
       - task: web:dev
 
+  bridge:install:
+    desc: Install bridge deps (fastapi/uvicorn/anthropic + sentence-transformers)
+    cmds:
+      - uv sync --group bridge --group bridge-local
+
+  bridge:run:
+    desc: Run the python LLM bridge on :8181 (default encoder = embedding)
+    cmds:
+      - CORTEX_ENCODER="{{.ENCODER | default \"embedding\"}}" uv run python -m experiments.bridge.service
+
+  bridge:haiku:
+    desc: Run the bridge with the haiku label-matching encoder
+    cmds:
+      - CORTEX_ENCODER=haiku uv run python -m experiments.bridge.service
+
   docker:up:
     desc: docker compose up -d (postgres + core image)
     cmds:
