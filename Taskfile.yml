@@ -1,0 +1,178 @@
+version: "3"
+
+# Long Horizon Cortex Mechanism — task runner
+# Run `task` (no args) to list everything.
+# Run `task <name>` to execute. Run `task <name> --` to pass extra args through.
+#
+# Layout:
+#   web/         Next.js + Tailwind frontend       → web:*
+#   core/        Rust SNN simulator (planned)      → core:*
+#   experiments/ Python research layer (planned)   → py:*
+#   vault/       Obsidian knowledge base           → vault:*
+
+vars:
+  WEB_PORT: '{{.WEB_PORT | default "3737"}}'
+  CORE_PORT: '{{.CORE_PORT | default "8080"}}'
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list-all
+    silent: true
+
+  # ── meta ────────────────────────────────────────────────────────────────
+  install:
+    desc: Install all project dependencies (web + python)
+    cmds:
+      - task: web:install
+      - task: py:install
+
+  dev:
+    desc: Run the full stack in dev (web only for now; core/py added when they exist)
+    deps: [web:dev]
+
+  build:
+    desc: Build everything that can be built
+    cmds:
+      - task: web:build
+
+  clean:
+    desc: Remove build artifacts and node_modules
+    cmds:
+      - rm -rf web/.next web/node_modules
+      - rm -rf core/target 2>/dev/null || true
+      - find . -type d -name __pycache__ -prune -exec rm -rf {} + 2>/dev/null || true
+
+  # ── web ─────────────────────────────────────────────────────────────────
+  web:install:
+    desc: Install web dependencies
+    dir: web
+    cmds:
+      - npm install
+    sources:
+      - package.json
+      - package-lock.json
+    generates:
+      - node_modules/.package-lock.json
+
+  web:dev:
+    desc: Run Next.js dev server (port {{.WEB_PORT}})
+    dir: web
+    deps: [web:install]
+    cmds:
+      - npx next dev --port {{.WEB_PORT}}
+
+  web:build:
+    desc: Production build of the web app
+    dir: web
+    deps: [web:install]
+    cmds:
+      - npx next build
+
+  web:start:
+    desc: Run the production build (port {{.WEB_PORT}})
+    dir: web
+    deps: [web:build]
+    cmds:
+      - npx next start --port {{.WEB_PORT}}
+
+  web:lint:
+    desc: Lint web sources
+    dir: web
+    deps: [web:install]
+    cmds:
+      - npx next lint
+
+  web:typecheck:
+    desc: Typecheck web sources (no emit)
+    dir: web
+    deps: [web:install]
+    cmds:
+      - npx tsc --noEmit
+
+  web:check:
+    desc: Lint + typecheck + build (use before commit)
+    cmds:
+      - task: web:typecheck
+      - task: web:lint
+      - task: web:build
+
+  # ── core (Rust — planned, see vault/ideas/architecture-stack.md) ────────
+  core:build:
+    desc: Build the Rust core (cargo build --release)
+    dir: core
+    cmds:
+      - cargo build --release
+    status:
+      - test -d core
+
+  core:run:
+    desc: Run the Rust core SNN server (port {{.CORE_PORT}})
+    dir: core
+    cmds:
+      - cargo run --release
+    status:
+      - test -d core
+
+  core:test:
+    desc: Run Rust tests
+    dir: core
+    cmds:
+      - cargo test
+    status:
+      - test -d core
+
+  core:fmt:
+    desc: Format Rust sources
+    dir: core
+    cmds:
+      - cargo fmt
+    status:
+      - test -d core
+
+  core:clippy:
+    desc: Lint Rust sources
+    dir: core
+    cmds:
+      - cargo clippy -- -D warnings
+    status:
+      - test -d core
+
+  # ── python (experiments / training layer) ───────────────────────────────
+  py:install:
+    desc: Install Python deps via uv (or pip if no uv)
+    cmds:
+      - |
+        if command -v uv >/dev/null 2>&1; then
+          uv sync
+        else
+          pip install -e .
+        fi
+
+  py:run:
+    desc: Run main.py
+    cmds:
+      - python main.py
+
+  py:repl:
+    desc: Open a Python REPL with the project on path
+    cmds:
+      - python -i -c "print('long-horizon-cortex-mechanism · python repl')"
+
+  # ── vault (Obsidian knowledge base) ─────────────────────────────────────
+  vault:logs:
+    desc: Open today's log (creates if missing)
+    cmds:
+      - |
+        f="vault/logs/$(date +%Y-%m-%d).md"
+        if [ ! -f "$f" ]; then
+          printf -- '---\ntags: [type/log]\ncreated: %s\n---\n\n# %s\n\n## Done\n\n' "$(date +%Y-%m-%d)" "$(date +%Y-%m-%d)" > "$f"
+          echo "created $f"
+        fi
+        ${EDITOR:-open} "$f"
+
+  vault:grep:
+    desc: 'Grep the vault: task vault:grep -- <pattern>'
+    cmds:
+      - grep -rni --include='*.md' "{{.CLI_ARGS}}" vault/ || true
