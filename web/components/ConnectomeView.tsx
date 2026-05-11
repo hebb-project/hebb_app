@@ -4,12 +4,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { STATE_PRESETS, type Palette, type StateKey } from "@/lib/state";
 import {
   cortexHttpBase,
+  cortexWeightsWsUrl,
   cortexWsUrl,
   fetchGraph,
   postStimulate,
   type CortexEdge,
   type CortexNode,
   type CortexSpikeFrame,
+  type CortexWeightFrame,
 } from "@/lib/cortex-api";
 
 type GraphNode = {
@@ -26,9 +28,14 @@ type GraphNode = {
   neighbors: number[];
 };
 
-type GraphEdge = { a: number; b: number; len: number; longRange?: boolean };
+type GraphEdge = { a: number; b: number; len: number; longRange?: boolean; id?: string; weight: number };
 
-type Graph = { nodes: GraphNode[]; edges: GraphEdge[]; idToIndex: Map<string, number> };
+type Graph = {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  idToIndex: Map<string, number>;
+  edgeIdToIndex: Map<string, number>;
+};
 
 type Spike = { from: number; to: number; t0: number; dur: number };
 
@@ -111,7 +118,7 @@ function buildConnectome(nodeCount: number, w: number, h: number, seed = 7): Gra
       const key = i < j ? `${i}-${j}` : `${j}-${i}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      edges.push({ a: i, b: j, len: Math.sqrt(dists[t].d) });
+      edges.push({ a: i, b: j, len: Math.sqrt(dists[t].d), weight: 0.5 });
       nodes[i].neighbors.push(j);
       nodes[j].neighbors.push(i);
     }
@@ -127,12 +134,12 @@ function buildConnectome(nodeCount: number, w: number, h: number, seed = 7): Gra
     seen.add(key);
     const dx = nodes[i].x - nodes[j].x;
     const dy = nodes[i].y - nodes[j].y;
-    edges.push({ a: i, b: j, len: Math.sqrt(dx * dx + dy * dy), longRange: true });
+    edges.push({ a: i, b: j, len: Math.sqrt(dx * dx + dy * dy), longRange: true, weight: 0.5 });
     nodes[i].neighbors.push(j);
     nodes[j].neighbors.push(i);
   }
 
-  return { nodes, edges, idToIndex: new Map() };
+  return { nodes, edges, idToIndex: new Map(), edgeIdToIndex: new Map() };
 }
 
 /**
@@ -200,18 +207,27 @@ function buildFromApi(
   }
 
   const edges: GraphEdge[] = [];
+  const edgeIdToIndex = new Map<string, number>();
   for (const e of apiEdges) {
     const a = idToIndex.get(e.pre_id);
     const b = idToIndex.get(e.post_id);
     if (a === undefined || b === undefined || a === b) continue;
     const dx = nodes[a].x - nodes[b].x;
     const dy = nodes[a].y - nodes[b].y;
-    edges.push({ a, b, len: Math.sqrt(dx * dx + dy * dy), longRange: e.weight > 0.75 });
+    const idx = edges.length;
+    edges.push({
+      a, b,
+      len: Math.sqrt(dx * dx + dy * dy),
+      longRange: e.weight > 0.75,
+      id: e.id,
+      weight: e.weight,
+    });
+    edgeIdToIndex.set(e.id, idx);
     nodes[a].neighbors.push(b);
     nodes[b].neighbors.push(a);
   }
 
-  return { nodes, edges, idToIndex };
+  return { nodes, edges, idToIndex, edgeIdToIndex };
 }
 
 // ── Component ─────────────────────────────────────────────────────────────
@@ -275,6 +291,8 @@ export function ConnectomeView({
   const apiGraphRef = useRef<{ nodes: CortexNode[]; edges: CortexEdge[] } | null>(null);
   // Queue of node indices that the WS told us fired since the last frame.
   const pendingSpikesRef = useRef<number[]>([]);
+  // Pending edge weight updates keyed by edge_id; drained into the live graph.
+  const pendingWeightsRef = useRef<Map<string, number>>(new Map());
 
   const propsRef = useRef({ stateKey, colors, wireframe, onSpikeRate, live });
   useEffect(() => {
@@ -415,7 +433,7 @@ export function ConnectomeView({
     return () => { cancelled = true; };
   }, [live, cortexHttp]);
 
-  // ── Live mode: WS subscription. Reconnects with backoff. ──────────
+  // ── Live mode: spike WS subscription (with reconnect backoff). ────
   useEffect(() => {
     if (!live) return;
     let stopped = false;
@@ -439,9 +457,6 @@ export function ConnectomeView({
       ws.onmessage = (ev) => {
         try {
           const frame: CortexSpikeFrame = JSON.parse(ev.data);
-          // We can't resolve uuid→index here because the animation graph
-          // lives inside the rAF effect; stash the raw ids and let that
-          // effect map them when it picks them up.
           (pendingSpikesRef as unknown as { current: (string | number)[] }).current.push(
             ...frame.events.map((e) => e.node_id as unknown as string),
           );
@@ -455,6 +470,40 @@ export function ConnectomeView({
       try { ws?.close(); } catch {}
     };
   }, [live, cortexWs]);
+
+  // ── Live mode: weights WS subscription. ───────────────────────────
+  useEffect(() => {
+    if (!live) return;
+    let stopped = false;
+    let ws: WebSocket | null = null;
+    let retry = 0;
+
+    const connect = () => {
+      if (stopped) return;
+      const url = cortexWeightsWsUrl(cortexHttp);
+      ws = new WebSocket(url);
+      ws.onopen = () => { retry = 0; };
+      ws.onclose = () => {
+        if (stopped) return;
+        retry = Math.min(retry + 1, 8);
+        setTimeout(connect, 250 * Math.pow(1.8, retry));
+      };
+      ws.onerror = () => { /* close handler reconnects */ };
+      ws.onmessage = (ev) => {
+        try {
+          const frame: CortexWeightFrame = JSON.parse(ev.data);
+          const map = pendingWeightsRef.current;
+          for (const d of frame.deltas) map.set(d.edge_id, d.w);
+        } catch {}
+      };
+    };
+    connect();
+
+    return () => {
+      stopped = true;
+      try { ws?.close(); } catch {}
+    };
+  }, [live, cortexHttp]);
 
   // ── Click to stimulate ────────────────────────────────────────────
   useEffect(() => {
@@ -634,6 +683,15 @@ export function ConnectomeView({
             if (idx !== undefined) spawnSpikeFromNode(idx, now);
           }
         }
+        // Apply pending weight updates to the live graph.
+        if (g && pendingWeightsRef.current.size) {
+          const m = pendingWeightsRef.current;
+          for (const [edgeId, w] of m) {
+            const ei = g.edgeIdToIndex.get(edgeId);
+            if (ei !== undefined) g.edges[ei].weight = w;
+          }
+          m.clear();
+        }
       } else if (!paused) {
         const targetSps = 2 + intensity * intensity * 110;
         state.spawnAcc += (targetSps * dt) / 1000;
@@ -744,14 +802,28 @@ export function ConnectomeView({
         }
         ctx.stroke();
       } else {
-        ctx.lineWidth = 1 / view.scale;
         for (const e of g.edges) {
           const a = g.nodes[e.a];
           const b = g.nodes[e.b];
           const act = Math.max(a.fire, b.fire);
+          // weight ∈ [0,1]; centered at 0.5 → 1.0 thickness, scaling linearly
+          // 0 → 0.25× thickness, 1 → 2.5× thickness. Activity layered on top.
+          const w = e.weight;
+          const thickness = (0.25 + w * 2.25) / view.scale;
+          ctx.lineWidth = thickness;
           if (e.longRange) {
-            ctx.strokeStyle =
-              act > 0.05 ? `rgba(125,249,255,${0.18 + act * 0.45})` : colors.edgeStrong;
+            // Slightly pink-tinged for high-weight long-range edges so the
+            // "this connection has been potentiated" reading is glanceable.
+            const tintBase = 0.18 + act * 0.45 + Math.max(0, w - 0.5) * 0.5;
+            ctx.strokeStyle = `rgba(180,220,255,${Math.min(1, tintBase)})`;
+          } else if (w > 0.55) {
+            // Potentiated: brighter cyan.
+            const aBase = 0.18 + (w - 0.55) * 1.5 + act * 0.35;
+            ctx.strokeStyle = `rgba(125,249,255,${Math.min(1, aBase)})`;
+          } else if (w < 0.45) {
+            // Depressed: dimmer.
+            const aBase = 0.04 + w * 0.18 + act * 0.3;
+            ctx.strokeStyle = `rgba(125,249,255,${Math.min(1, aBase)})`;
           } else {
             ctx.strokeStyle =
               act > 0.05 ? `rgba(125,249,255,${0.12 + act * 0.35})` : colors.edge;

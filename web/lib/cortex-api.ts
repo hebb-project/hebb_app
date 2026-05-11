@@ -20,6 +20,14 @@ export type CortexEdge = {
 export type CortexSpikeEvent = { node_id: string; t_ms: number };
 export type CortexSpikeFrame = { v: number; t_ms: number; events: CortexSpikeEvent[] };
 
+export type CortexWeightDelta = { edge_id: string; w: number };
+export type CortexWeightFrame = {
+  v: number;
+  t_ms: number;
+  full: boolean;
+  deltas: CortexWeightDelta[];
+};
+
 const DEFAULT_HTTP =
   process.env.NEXT_PUBLIC_CORTEX_HTTP ?? "http://127.0.0.1:8080";
 
@@ -31,6 +39,12 @@ export function cortexWsUrl(override?: string): string {
   if (override) return override;
   const http = cortexHttpBase();
   return http.replace(/^http/, "ws") + "/ws/spikes";
+}
+
+export function cortexWeightsWsUrl(override?: string): string {
+  if (override) return override;
+  const http = cortexHttpBase();
+  return http.replace(/^http/, "ws") + "/ws/weights";
 }
 
 async function unwrap<T>(r: Response): Promise<T> {

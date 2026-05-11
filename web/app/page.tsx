@@ -31,6 +31,7 @@ export default function Home() {
       <div className="cols">
         <ChatPanel
           width={CHAT_WIDTH}
+          live={LIVE}
           onSend={() => {
             if (stateKey === "idle") setStateKey("active");
           }}
