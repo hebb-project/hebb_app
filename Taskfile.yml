@@ -57,11 +57,11 @@ tasks:
       - node_modules/.package-lock.json
 
   web:dev:
-    desc: Run Next.js dev server (port {{.WEB_PORT}})
+    desc: Run Next.js dev server (port {{.WEB_PORT}}, turbopack)
     dir: web
     deps: [web:install]
     cmds:
-      - npx next dev --port {{.WEB_PORT}}
+      - npx next dev --turbopack --port {{.WEB_PORT}}
 
   web:build:
     desc: Production build of the web app
