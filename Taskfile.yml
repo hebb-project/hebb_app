@@ -139,6 +139,40 @@ tasks:
     status:
       - test -d core
 
+  core:migrate:
+    desc: Run diesel migrations against $DATABASE_URL
+    dir: core
+    cmds:
+      - diesel migration run
+
+  core:seed:
+    desc: Bootstrap mock knowledge base into the running core
+    cmds:
+      - uv run python experiments/scripts/bootstrap_vault.py --vault tests/mock-knowledge-base
+
+  core:demo:
+    desc: Full stack (dockerized postgres + core via cargo + web dev server)
+    cmds:
+      - docker compose up -d postgres
+      - sleep 1
+      - task: core:run &
+      - task: web:dev
+
+  docker:up:
+    desc: docker compose up -d (postgres + core image)
+    cmds:
+      - docker compose up -d --build
+
+  docker:down:
+    desc: docker compose down (keep volumes)
+    cmds:
+      - docker compose down
+
+  docker:nuke:
+    desc: docker compose down -v (wipes the postgres volume)
+    cmds:
+      - docker compose down -v
+
   # ── python (experiments / training layer) ───────────────────────────────
   py:install:
     desc: Install Python deps via uv (or pip if no uv)
