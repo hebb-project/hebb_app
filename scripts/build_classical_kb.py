@@ -67,60 +67,119 @@ GREECE_PEOPLE: dict[str, tuple[str, str, list[str]]] = {
         "person",
         """
         Socrates of Athens (c. 470–399 BCE) was a classical Greek philosopher
-        credited as a founder of Western moral philosophy. He left no writings;
-        what we know comes through his students [[plato]] and [[xenophon]], and
-        through the comedies of [[aristophanes]]. His method — the elenchus —
-        proceeded by relentless cross-examination of interlocutors in the
-        [[athens|Athenian]] agora, exposing contradictions in claims about
-        virtue, justice, and piety. Tried for impiety and corrupting the youth
-        after the [[peloponnesian-war]] had embittered Athens against
-        unorthodoxy, he was sentenced to death by hemlock. His trial is
-        narrated in Plato's [[apology]] and his death in the [[phaedo]].
+        credited as a founder of Western moral philosophy. The son of a
+        stonemason and a midwife, he served as a hoplite at Potidaea (432),
+        Delium (424), and Amphipolis (422) during the [[peloponnesian-war]]
+        — [[plato]] credits him with saving Alcibiades' life at Potidaea.
+        He left no writings; what we know of him comes through his students
+        [[plato]] and [[xenophon]], and through the comedies of
+        [[aristophanes]], whose Clouds (423 BCE) lampooned him as a
+        sophistic head-in-the-clouds natural philosopher — a caricature
+        Plato later argued contributed to public prejudice against him.
+        His method — the elenchus — proceeded by relentless cross-
+        examination of interlocutors in the [[athens|Athenian]] agora,
+        exposing contradictions in claims about virtue (arete), justice,
+        and piety. After the war and the brief tyranny of the Thirty (some
+        of whom, including Critias and Charmides, had been his associates),
+        a restored [[democracy]] tried him in 399 BCE on charges of impiety
+        and corrupting the youth. Convicted by a narrow vote of a 500-man
+        jury and refusing the customary escape into exile, he drank
+        hemlock. His trial is narrated in [[plato|Plato's]] [[apology]] and
+        his death in the [[phaedo]]; [[xenophon]] also wrote his own
+        Apology and Memorabilia.
         """,
-        ["plato", "xenophon", "aristophanes", "athens", "peloponnesian-war", "apology", "phaedo"],
+        ["peloponnesian-war", "plato", "xenophon", "aristophanes", "athens", "democracy", "apology", "phaedo"],
     ),
     "plato": (
         "person",
         """
-        Plato (c. 428–348 BCE), pupil of [[socrates]] and teacher of
-        [[aristotle]], founded the Academy in [[athens]] and is the most
-        influential philosopher of antiquity. His dialogues — the [[republic]],
-        [[symposium]], [[phaedo]], [[timaeus]], and many more — invented
-        political philosophy, metaphysics of the [[forms|Forms]], and a
-        durable critique of [[democracy]]. The Republic's tripartite soul and
-        philosopher-king ideal would shape every later European discussion of
-        justice, including Christian and Islamic political theology.
+        Plato (c. 428–348 BCE), born Aristocles into an old [[athens|Athenian]]
+        aristocratic family connected to the oligarchic Thirty, became the
+        pupil of [[socrates]] and, after Socrates' execution in 399 BCE,
+        traveled to southern Italy and Sicily where he encountered
+        Pythagorean mathematics — a contact that visibly shapes the
+        [[timaeus]]. He founded the Academy in the grove of Akademos
+        outside Athens around 387 BCE; it would operate, in various forms,
+        for nearly nine centuries until [[justinian]] closed the pagan
+        philosophical schools in 529 CE. His thirty-five extant dialogues
+        and thirteen letters cover almost every topic in philosophy:
+        political theory ([[republic]], Statesman, Laws), metaphysics
+        ([[timaeus]], Parmenides), epistemology (Theaetetus, Meno),
+        philosophy of language (Cratylus), eros and beauty ([[symposium]],
+        Phaedrus), and the conduct of the philosophical life ([[apology]],
+        [[phaedo]], Crito). His theory of the [[forms|Forms]] holds that
+        the changing particulars of sense are imperfect instances of
+        eternal universals; his tripartite soul (reason / spirit /
+        appetite) underlies the Republic's analogous tripartite city.
+        Three trips to Syracuse (387, 367, 361) trying to educate the
+        younger Dionysius into a philosopher-king ended badly each time.
+        His pupil [[aristotle]] would break with him on the Forms while
+        carrying forward the project of systematic philosophy.
         """,
-        ["socrates", "aristotle", "athens", "republic", "symposium", "phaedo", "timaeus", "forms", "democracy"],
+        ["athens", "socrates", "timaeus", "justinian", "republic", "symposium", "apology", "phaedo", "forms", "aristotle"],
     ),
     "aristotle": (
         "person",
         """
-        Aristotle (384–322 BCE) was a polymath born in Stagira, student of
-        [[plato]] at the Academy, and tutor to [[alexander-the-great]]. He
-        founded the Lyceum in [[athens]] and wrote on logic, physics,
-        biology, ethics ([[nicomachean-ethics]]), politics, and poetics. His
-        empirical bent broke with Plato's [[forms|Forms]]: universals are
-        instantiated *in* things, not in a separate realm. Aristotle's works,
-        recovered through Arabic intermediaries, became the spine of
-        medieval scholasticism.
+        Aristotle (384–322 BCE), born in Stagira on the Chalcidic peninsula
+        to Nicomachus — court physician to the Macedonian king Amyntas III
+        — entered [[plato|Plato's]] Academy at seventeen and remained
+        twenty years until Plato's death. Passed over for the headship of
+        the Academy, he traveled to Assos and Lesbos doing some of the
+        first systematic field biology in history (the marine zoology of
+        the Lagoon of Pyrrha). Around 343 BCE [[philip-ii]] summoned him
+        to Pella to tutor the thirteen-year-old [[alexander-the-great]]. He
+        founded the Lyceum (the Peripatetic school) in [[athens]] in 335
+        BCE on Alexander's accession, and fled the city in 322 after
+        Alexander's death to escape an anti-Macedonian backlash —
+        reportedly saying he would not let Athens "sin twice against
+        philosophy," in reference to [[socrates]]. His surviving works
+        (likely lecture notes assembled by later editors, principally
+        Andronicus of Rhodes c. 60 BCE) cover logic (the Organon),
+        physics, biology, the soul (De Anima), metaphysics, ethics
+        ([[nicomachean-ethics]], Eudemian Ethics), [[politics-aristotle|Politics]],
+        rhetoric, and the [[poetics]]. His empirical bent broke with
+        Plato's [[forms|Forms]]: universals are instantiated *in* things,
+        not in a separate realm. Recovered through Syriac and Arabic
+        intermediaries (notably Averroes), his works became the spine of
+        medieval scholasticism — "the Philosopher" tout court in Aquinas.
         """,
-        ["plato", "alexander-the-great", "athens", "nicomachean-ethics", "forms"],
+        ["plato", "philip-ii", "alexander-the-great", "athens", "socrates", "nicomachean-ethics", "politics-aristotle", "poetics", "forms"],
     ),
     "alexander-the-great": (
         "person",
         """
-        Alexander III of Macedon (356–323 BCE), son of [[philip-ii]] and
-        student of [[aristotle]], conquered the Achaemenid Persian Empire in
-        a single decade. From the Granicus through Issus and Gaugamela, his
-        campaigns reached the Indus before mutinous troops turned him back.
-        He founded [[alexandria|Alexandria]] in Egypt — later the seat of the
-        [[ptolemy-i|Ptolemaic]] dynasty — and a dozen other Alexandrias from
-        Mesopotamia to Central Asia. His death at 32 in Babylon fractured
-        his empire into the Hellenistic kingdoms of the Diadochi, defining
-        the political map for three centuries.
+        Alexander III of [[macedon]] (356–323 BCE), son of [[philip-ii]]
+        and Olympias of Epirus, was tutored from age thirteen by
+        [[aristotle]] at Mieza. He acceded at twenty after Philip's
+        assassination in 336 BCE, crushed a Theban revolt by levelling the
+        city in 335 (sparing only the house of Pindar), and crossed the
+        Hellespont in 334 BCE with roughly 40,000 troops to launch the
+        invasion of Persia his father had planned. Four major battles
+        decided the empire: the Granicus (334), [[battle-of-issus|Issus]]
+        (333) against [[darius-iii]] in person, [[battle-of-gaugamela|Gaugamela]]
+        (331) — the decisive engagement — and the Hydaspes (326) against
+        the Indian king Porus. Between these he took Tyre after a seven-
+        month siege, founded [[alexandria]] in Egypt (331 BCE) after being
+        hailed son of Ammon at Siwa, burned Persepolis in 330 (whether
+        drunken revenge for Xerxes or a calculated political signal is
+        ancient), and pursued Darius into Bactria where the satrap Bessus
+        murdered him. Adopting Persian dress and court ritual (proskynesis)
+        and marrying Roxana, then Stateira and Parysatis at Susa, he
+        alienated his Macedonian veterans; their mutiny at the Hyphasis in
+        326 turned the army back from India. He died of fever (or
+        poisoning, by some accounts) in Babylon in June 323 BCE at age 32.
+        He founded perhaps two dozen cities named Alexandria from Egypt to
+        the Hindu Kush; his empire fractured into the [[hellenistic-age|Hellenistic]]
+        successor kingdoms of the Diadochi — [[ptolemy-i|Ptolemy]] taking
+        Egypt, Seleucus taking the eastern bulk, Antigonus and his line
+        Macedon — and defined the political map of the eastern
+        Mediterranean for three centuries. Principal sources: Arrian's
+        Anabasis (drawing on the lost memoirs of [[ptolemy-i]] and
+        Aristobulus), [[plutarch|Plutarch's]] Life, Quintus Curtius Rufus,
+        Diodorus Siculus.
         """,
-        ["philip-ii", "aristotle", "alexandria", "ptolemy-i", "macedon"],
+        ["macedon", "philip-ii", "aristotle", "battle-of-issus", "battle-of-gaugamela", "darius-iii", "alexandria", "hellenistic-age", "ptolemy-i", "plutarch"],
     ),
     "philip-ii": (
         "person",
@@ -328,6 +387,194 @@ GREECE_PEOPLE: dict[str, tuple[str, str, list[str]]] = {
         [[marcus-aurelius]] directly.
         """,
         ["rome", "stoicism", "marcus-aurelius"],
+    ),
+    "cleisthenes": (
+        "person",
+        """
+        Cleisthenes of [[athens]] (c. 570–508 BCE), of the Alcmaeonid clan,
+        is conventionally called the "father of [[democracy|Athenian
+        democracy]]." After the expulsion of the Peisistratid tyrants
+        (510 BCE) and a brief Spartan-backed counter-coup, he overhauled
+        the constitution in 508/507 BCE: the four traditional Ionian
+        tribes were replaced by ten new ones whose membership was
+        deliberately scrambled across coast, city, and inland trittyes,
+        breaking up regional aristocratic power. He created the Council
+        of 500 (the boule, fifty men from each tribe by lot) and is
+        traditionally credited with introducing ostracism — the annual
+        ten-year exile of any citizen by majority vote. The reforms
+        followed and built on [[solon|Solon's]]; [[pericles]] later
+        extended them.
+        """,
+        ["athens", "democracy", "solon", "pericles"],
+    ),
+    "demosthenes": (
+        "person",
+        """
+        Demosthenes (384–322 BCE) was the greatest Athenian orator of the
+        4th century BCE, famous for the Philippics — speeches urging
+        [[athens]] to resist [[philip-ii|Philip of Macedon]] before he
+        absorbed Greece. He overcame a childhood speech impediment by
+        speaking with pebbles in his mouth (so [[plutarch]] reports) and
+        practiced declamation against the sea. Athens lost at Chaeronea
+        (338 BCE) and the Macedonian conquest he had warned against
+        proceeded. After [[alexander-the-great|Alexander's]] death he
+        led one last rising; defeated, he took poison in the temple of
+        Poseidon on Calauria in 322 BCE rather than be captured.
+        """,
+        ["athens", "philip-ii", "plutarch", "alexander-the-great"],
+    ),
+    "plutarch": (
+        "person",
+        """
+        Plutarch of Chaeronea (c. 46–120 CE) was a Greek-speaking Roman
+        citizen, priest at Delphi, and the most influential biographer of
+        antiquity. His *Parallel Lives* paired forty-eight Greek and
+        Roman statesmen (Alexander/Caesar, Demosthenes/Cicero, Theseus/
+        Romulus, etc.) to draw out moral character. His *Moralia* is a
+        large miscellany of ethical, religious, and literary essays.
+        Shakespeare's [[julius-caesar|Caesar]], Antony and Cleopatra, and
+        Coriolanus draw directly from North's English translation of
+        Plutarch.
+        """,
+        ["julius-caesar"],
+    ),
+    "polybius": (
+        "person",
+        """
+        Polybius of Megalopolis (c. 200–118 BCE), Greek historian, was
+        deported to [[rome]] after the Roman victory at Pydna (168 BCE)
+        as one of a thousand Achaean hostages. He befriended
+        [[scipio-aemilianus]] and witnessed the destruction of [[carthage]]
+        and Corinth in 146 BCE. His *Histories* (forty books, five
+        surviving entire) explain Rome's rise to Mediterranean dominance
+        between the [[first-punic-war]] and the destruction of Carthage,
+        introducing the doctrine of the "mixed constitution" — Rome's
+        balance of monarchical (consuls), aristocratic (Senate), and
+        democratic (assemblies) elements — that would influence
+        Montesquieu and the framers of the U.S. Constitution.
+        """,
+        ["rome", "scipio-aemilianus", "carthage", "first-punic-war"],
+    ),
+    "marius": (
+        "person",
+        """
+        Gaius Marius (157–86 BCE), Roman general and consul a record
+        seven times. His military reforms — opening recruitment to the
+        landless capite censi and standardizing the cohort — created a
+        professional army loyal to its commander rather than the state,
+        with consequences neither he nor anyone else foresaw. He defeated
+        Jugurtha in North Africa and the Cimbri and Teutones in the
+        north (102–101 BCE). His bitter rivalry with his former
+        lieutenant [[sulla]] launched the first Roman civil war and the
+        cycle of proscriptions that ended with [[augustus]].
+        """,
+        ["sulla", "augustus"],
+    ),
+    "sulla": (
+        "person",
+        """
+        Lucius Cornelius Sulla Felix (138–78 BCE), Roman general and
+        dictator. Quaestor under [[marius]] in the Jugurthine War, he
+        broke with his patron and led the first Roman army ever to march
+        on [[rome]] (88 BCE), then again in 82 BCE after his eastern
+        campaign against Mithridates VI of Pontus. Victorious in civil
+        war, he was named dictator legibus faciendis et rei publicae
+        constituendae causa — a position with no time limit — and used
+        it to issue proscriptions that killed thousands of his enemies,
+        then to enact constitutional reforms strengthening the Senate.
+        He stunned contemporaries by voluntarily retiring in 79 BCE.
+        His career was the template a young [[julius-caesar]] both
+        feared and studied.
+        """,
+        ["marius", "rome", "julius-caesar"],
+    ),
+    "gracchi-brothers": (
+        "person",
+        """
+        Tiberius Gracchus (c. 163–133 BCE) and Gaius Gracchus (c. 154–121
+        BCE), tribunes of the plebs whose attempts at land reform —
+        redistributing public land (ager publicus) to landless citizens
+        — opened the long political crisis of the late Roman Republic.
+        Tiberius was clubbed to death on the Capitoline in 133 BCE by a
+        senatorial mob led by his cousin Scipio Nasica; Gaius, pursuing
+        broader reforms a decade later, was driven to suicide in 121 BCE
+        after the Senate's first *senatus consultum ultimum*. They are
+        the canonical first casualties of the Republic's collapse into
+        [[fall-of-the-republic|civil violence]].
+        """,
+        ["fall-of-the-republic"],
+    ),
+    "cato-the-elder": (
+        "person",
+        """
+        Marcus Porcius Cato (234–149 BCE), known as Cato the Censor, was
+        a Roman statesman famous for moralizing severity, anti-Hellenic
+        conservatism, and ending every Senate speech with *Carthago
+        delenda est* — Carthage must be destroyed — until [[carthage]]
+        was destroyed in the [[third-punic-war]] the year he died.
+        """,
+        ["carthage", "third-punic-war"],
+    ),
+    "cato-the-younger": (
+        "person",
+        """
+        Marcus Porcius Cato Uticensis (95–46 BCE), great-grandson of
+        [[cato-the-elder]], was the most prominent senatorial opponent
+        of [[julius-caesar]]. A devout [[stoicism|Stoic]] of legendary
+        incorruptibility, he committed suicide at Utica in 46 BCE after
+        Caesar's victory at Thapsus rather than accept a pardon. He
+        became the Stoic martyr-figure of the lost Republic for
+        [[seneca]] and Lucan.
+        """,
+        ["cato-the-elder", "julius-caesar", "stoicism", "seneca"],
+    ),
+    "pyrrhus": (
+        "person",
+        """
+        Pyrrhus of Epirus (c. 319–272 BCE), Hellenistic king and cousin
+        of [[alexander-the-great]], invaded Italy in 280 BCE at the
+        invitation of Tarentum to defend the Greek cities against
+        [[rome]]. He defeated the Romans at Heraclea (280) and Asculum
+        (279) but at such cost that he reportedly said "another such
+        victory and I am undone" — the origin of "Pyrrhic victory."
+        Withdrew to Sicily, then back to Epirus, and was killed by a
+        roof tile in a street fight at Argos. His Italian war was
+        Rome's first against a major Hellenistic power and a preview of
+        the wars to come.
+        """,
+        ["alexander-the-great", "rome"],
+    ),
+    "phidias": (
+        "person",
+        """
+        Phidias (c. 480–430 BCE) was the supreme sculptor of classical
+        [[athens]], overseer of the Parthenon's sculptural program under
+        [[pericles]] and creator of the colossal chryselephantine statues
+        of Athena Parthenos (in the Parthenon) and Zeus at Olympia (one
+        of the Seven Wonders). All his major works are lost; their
+        impact on Roman sculptural taste is preserved through copies.
+        """,
+        ["athens", "pericles"],
+    ),
+    "praxiteles": (
+        "person",
+        """
+        Praxiteles (fl. 4th century BCE), Athenian sculptor of the later
+        classical period, whose Aphrodite of Knidos was the first
+        monumental female nude in Greek art and the most copied statue
+        of antiquity.
+        """,
+        [],
+    ),
+    "lysippus": (
+        "person",
+        """
+        Lysippus of Sicyon (4th century BCE), favored sculptor of
+        [[alexander-the-great]], introduced a leaner, more elongated
+        canon than Polykleitos' fifth-century proportions. The Farnese
+        Hercules and the Apoxyomenos are Roman copies of his work.
+        """,
+        ["alexander-the-great"],
     ),
 }
 
@@ -565,6 +812,35 @@ GREECE_WORKS: dict[str, tuple[str, str, list[str]]] = {
         """,
         ["herodotus", "persian-wars"],
     ),
+    "poetics": (
+        "work",
+        """
+        [[aristotle|Aristotle's]] Poetics is the founding work of Western
+        literary theory. Surviving in a single book (a second on comedy
+        is lost), it analyzes tragedy as the imitation (mimesis) of a
+        serious action that arouses pity and fear and effects catharsis
+        of those emotions. Aristotle treats [[oedipus-rex]] as the
+        exemplary plot, codifies the unities (only unity of action is
+        explicitly Aristotelian — the others are Renaissance accretions),
+        and distinguishes the universal in poetry from the particular in
+        history.
+        """,
+        ["aristotle", "oedipus-rex"],
+    ),
+    "politics-aristotle": (
+        "work",
+        """
+        [[aristotle|Aristotle's]] Politics, eight books, founds political
+        science as systematic inquiry. Famously defines the human being as
+        a *zoon politikon* — a political animal — surveys constitutions,
+        classifies regimes by who rules and in whose interest, and
+        defends polity (a mixed constitution of oligarchic and democratic
+        elements) as most stable. Includes the notorious defense of
+        natural slavery in book I, which would be cited by both
+        proponents and opponents of slavery in the early-modern Atlantic.
+        """,
+        ["aristotle"],
+    ),
 }
 
 GREECE_EVENTS: dict[str, tuple[str, str, list[str]]] = {
@@ -639,6 +915,34 @@ GREECE_EVENTS: dict[str, tuple[str, str, list[str]]] = {
         [[socrates]] in 399.
         """,
         ["athens", "pericles", "sparta", "thucydides", "socrates"],
+    ),
+    "battle-of-issus": (
+        "event",
+        """
+        At Issus (November 333 BCE), [[alexander-the-great]] defeated
+        [[darius-iii]] in person on a narrow coastal plain in Cilicia.
+        Darius' superior numbers could not be brought to bear; his
+        flight from the battlefield became iconic (the Alexander Mosaic
+        from Pompeii captures the moment). Alexander captured Darius'
+        wife, mother, and daughters, treating them with conspicuous
+        courtesy — a propaganda move as well as a personal one.
+        """,
+        ["alexander-the-great", "darius-iii"],
+    ),
+    "battle-of-gaugamela": (
+        "event",
+        """
+        At Gaugamela (1 October 331 BCE), on a leveled plain near modern
+        Mosul, [[alexander-the-great]] decisively defeated [[darius-iii]]
+        in the largest battle of the campaign. Outnumbered perhaps 2:1
+        (the ancient figures of a million Persians are fantastic),
+        Alexander's oblique advance forced a gap in the Persian line and
+        led a cavalry charge directly at Darius, who again fled. The
+        battle effectively ended the Achaemenid Empire; the Persian
+        capitals Babylon, Susa, and Persepolis fell over the following
+        year.
+        """,
+        ["alexander-the-great", "darius-iii"],
     ),
     "conquests-of-alexander": (
         "event",
@@ -834,6 +1138,65 @@ GREECE_CONCEPTS: dict[str, tuple[str, str, list[str]]] = {
         """,
         ["diogenes", "stoicism"],
     ),
+    "hoplite-phalanx": (
+        "concept",
+        """
+        The hoplite phalanx — heavy-infantry citizen-soldiers fighting
+        shoulder-to-shoulder in an eight-deep rectangular formation with
+        round aspis shields, eight-foot spears, and bronze helmets —
+        was the characteristic military formation of classical Greece.
+        It rewarded mass discipline over individual heroics; the citizen
+        who could afford the panoply (hoplon) fought, anchoring the
+        political claim to participate in the [[polis]]. [[philip-ii]]
+        broke its dominance with the longer Macedonian sarissa.
+        """,
+        ["polis", "philip-ii"],
+    ),
+    "helot": (
+        "concept",
+        """
+        The helots were the state-owned serf population of Lakonia and
+        Messenia who farmed the land for [[sparta|Spartan]] citizens
+        (Spartiates). They outnumbered their masters perhaps 7-to-1;
+        Spartan society's distinctive militarism is best understood as
+        the apparatus required to keep them subjugated. Each year the
+        ephors ritually declared war on them so any Spartiate could kill
+        a helot without religious pollution. Helots fought in war as
+        light troops and were emancipated en masse only after
+        [[battle-of-leuctra|Leuctra]] broke Spartan power.
+        """,
+        ["sparta", "battle-of-leuctra"],
+    ),
+    "ostracism": (
+        "concept",
+        """
+        Ostracism was an [[athens|Athenian]] democratic procedure,
+        traditionally credited to [[cleisthenes]], by which once a year
+        the assembly could vote to exile any citizen for ten years
+        without trial. Voters scratched the name on a potsherd
+        (ostrakon — hundreds survive); if 6,000 votes were cast, the
+        man with the most was ostracized. [[themistocles]] was ostracized
+        after Salamis. The practice fell out of use after 417 BCE.
+        """,
+        ["athens", "cleisthenes", "themistocles"],
+    ),
+    "solon-reforms": (
+        "concept",
+        """
+        Solon's reforms (594/3 BCE) were the constitutional package
+        [[solon]] enacted as archon to defuse a debt crisis that
+        threatened civil war in [[athens]]. He cancelled outstanding
+        debts (the *seisachtheia*, "shaking-off-of-burdens"), abolished
+        debt-slavery, replaced birth-based political eligibility with a
+        four-class division by income measured in agricultural produce
+        (pentakosiomedimnoi, hippeis, zeugitai, thetes), and created or
+        reformed the Council of 400 and the popular law-courts. His
+        framework — neither democracy nor pure aristocracy — laid the
+        ground that [[cleisthenes]] would push further toward
+        [[democracy]] a century later.
+        """,
+        ["solon", "athens", "cleisthenes", "democracy"],
+    ),
 }
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -857,29 +1220,77 @@ ROME_PEOPLE: dict[str, tuple[str, str, list[str]]] = {
     "julius-caesar": (
         "person",
         """
-        Gaius Julius Caesar (100–44 BCE) conquered Gaul in the
-        [[gallic-wars]], crossed the Rubicon to start a civil war against
-        [[pompey]], won at Pharsalus, was named dictator perpetuo, and was
-        stabbed to death in the Senate house on the [[ides-of-march]] (44
-        BCE) by a conspiracy including Brutus and Cassius. His
-        commentaries on the Gallic and Civil Wars are Latin prose at its
-        cleanest. His adopted heir [[augustus|Octavian]] would finish what
-        he started.
+        Gaius Julius Caesar (12 or 13 July 100 BCE – 15 March 44 BCE), of
+        the patrician gens Julia, rose through a conventional senatorial
+        cursus honorum (quaestor 69, aedile 65, pontifex maximus 63,
+        praetor 62, consul 59 BCE). His political alliance with [[pompey]]
+        and [[crassus]] — the First Triumvirate, formalized 60 BCE,
+        cemented by Pompey's marriage to Caesar's daughter Julia —
+        secured him the proconsular command in Gaul. Over 58–50 BCE the
+        [[gallic-wars]] subjugated all of Gaul and twice crossed the
+        Rhine and the Channel; his *Commentarii de Bello Gallico* (third
+        person, deliberately spare) made him a literary as well as
+        military figure. Julia's death in 54 and Crassus' death at
+        [[battle-of-carrhae|Carrhae]] in 53 BCE dissolved the triumvirate.
+        When the Senate, backed by Pompey, ordered him to disband his
+        army, he crossed the Rubicon (10–11 January 49 BCE) with Legio
+        XIII, reportedly saying *alea iacta est* — "the die is cast." He
+        defeated Pompey at [[battle-of-pharsalus|Pharsalus]] in Thessaly
+        (48 BCE), pursued him to Egypt where Pompey was murdered by
+        Ptolemy XIII's courtiers, intervened in the Egyptian civil war on
+        [[cleopatra|Cleopatra's]] side, defeated Pharnaces II at Zela in
+        47 (*veni, vidi, vici*), crushed the Pompeian remnant at Thapsus
+        (46) and Munda (45). Named dictator perpetuo in February 44 BCE,
+        he was stabbed to death twenty-three times in the Theatre of
+        Pompey on the [[ides-of-march]] by a conspiracy of some sixty
+        senators led by Marcus Junius Brutus and Gaius Cassius Longinus.
+        He had named his great-nephew [[augustus|Octavian]] as principal
+        heir and adopted son in his will; that adoption made the empire
+        possible. Principal sources: Caesar's own commentaries,
+        [[suetonius]], [[plutarch]], [[cicero|Cicero's]] letters, the
+        anonymous *Bellum Alexandrinum* and *Bellum Africum*.
         """,
-        ["gallic-wars", "pompey", "ides-of-march", "augustus"],
+        ["pompey", "crassus", "gallic-wars", "battle-of-carrhae", "battle-of-pharsalus", "cleopatra", "ides-of-march", "augustus", "suetonius", "plutarch", "cicero"],
     ),
     "augustus": (
         "person",
         """
-        Augustus (Gaius Octavius, 63 BCE – 14 CE), [[julius-caesar|Caesar's]]
-        grand-nephew and adopted heir, defeated [[mark-antony]] and
-        [[cleopatra]] at the [[battle-of-actium]] (31 BCE) and ruled
-        thereafter as the first Roman emperor — though he carefully styled
-        himself princeps, "first citizen," not king. His reign inaugurated
-        the [[pax-romana]] and patronized [[virgil]], [[horace]], and
-        [[livy]].
+        Augustus (Gaius Octavius, 23 September 63 BCE – 19 August 14 CE),
+        first Roman emperor, was the grand-nephew of [[julius-caesar]] and
+        adopted as his son by Caesar's will. At nineteen, in 44 BCE, he
+        used Caesar's name (rebranding himself Gaius Julius Caesar
+        Octavianus — "Octavian" is a modern convention) and Caesar's
+        veterans to push his way into politics over [[cicero|Cicero's]]
+        objections. He joined [[mark-antony]] and Lepidus in the Second
+        Triumvirate (43 BCE), legally constituted by the lex Titia — under
+        whose proscriptions Cicero was murdered. He and Antony defeated
+        Brutus and Cassius at [[battle-of-philippi|Philippi]] (42 BCE),
+        then divided the Roman world: Octavian taking the West, Antony
+        the East. Their alliance — sealed by Antony's marriage to
+        Octavia, Octavian's sister — frayed as Antony tied himself ever
+        more closely to [[cleopatra]] of [[ptolemaic-egypt|Egypt]]. After
+        the publicity coup of reading Antony's will (real or fabricated)
+        and a propaganda war framing the coming conflict as a struggle
+        against an eastern queen, his fleet under Agrippa won the
+        [[battle-of-actium]] (2 September 31 BCE). Antony and Cleopatra
+        committed suicide in Alexandria within the year. From 27 BCE he
+        styled himself *princeps* — "first citizen" — and the Senate
+        voted him the new name Augustus ("revered"). The constitutional
+        settlements of 27 and 23 BCE created the principate without
+        formally abolishing the Republic — magistracies and Senate
+        continued; real power flowed from his proconsular *imperium*,
+        tribunician *potestas*, control of the legions, and immense
+        personal wealth. His reign (27 BCE – 14 CE) inaugurated the
+        [[pax-romana]], reorganized the provinces, professionalized the
+        army with fixed terms and pensions, established the Praetorian
+        Guard, patronized [[virgil]] (commissioning the [[aeneid]]),
+        [[horace]], [[ovid]] (whom he later exiled), and [[livy]]. He
+        survived three named heirs (Marcellus, Agrippa, his grandsons
+        Gaius and Lucius) before settling on his stepson Tiberius. His
+        own account is the [[res-gestae|Res Gestae Divi Augusti]],
+        inscribed at his mausoleum and on copies across the empire.
         """,
-        ["julius-caesar", "mark-antony", "cleopatra", "battle-of-actium", "pax-romana", "virgil", "horace", "livy"],
+        ["julius-caesar", "cicero", "mark-antony", "battle-of-philippi", "cleopatra", "ptolemaic-egypt", "battle-of-actium", "pax-romana", "virgil", "aeneid", "horace", "ovid", "livy", "res-gestae"],
     ),
     "mark-antony": (
         "person",
@@ -895,15 +1306,33 @@ ROME_PEOPLE: dict[str, tuple[str, str, list[str]]] = {
     "cleopatra": (
         "person",
         """
-        Cleopatra VII Philopator (69–30 BCE), last active ruler of the
-        [[ptolemaic-egypt|Ptolemaic kingdom]] of Egypt, allied successively
-        with [[julius-caesar]] and [[mark-antony]] in attempts to preserve
-        Egyptian independence from [[rome]]. Defeated at the
-        [[battle-of-actium]] alongside Antony, she took her own life as
-        [[augustus]] entered [[alexandria]] — ending three centuries of
-        Ptolemaic rule.
+        Cleopatra VII Philopator (69–30 BCE) was the last effective ruler
+        of the [[ptolemaic-egypt|Ptolemaic kingdom]] of Egypt and the
+        last Hellenistic monarch. Daughter of Ptolemy XII Auletes, she
+        was reportedly the only Ptolemaic ruler in three centuries to
+        learn Egyptian as well as her native Greek (and, [[plutarch]]
+        says, eight or nine other languages). She ruled jointly with two
+        younger brother-husbands (Ptolemy XIII and XIV) and her son
+        Ptolemy XV Caesarion. Forced from [[alexandria]] in a civil war
+        with Ptolemy XIII's faction, she was famously smuggled to
+        [[julius-caesar]] (probably rolled in bedding, not a carpet —
+        Plutarch's word is *stromatodesmon*) when he wintered in Egypt
+        in 48–47 BCE pursuing [[pompey]]. Caesar restored her to the
+        throne, fathered Caesarion, and brought her to [[rome]] for two
+        years before his assassination on the [[ides-of-march]]. She
+        allied next with [[mark-antony]]: they met at Tarsus in 41 BCE,
+        had three children (Alexander Helios, Cleopatra Selene II,
+        Ptolemy Philadelphus), and at the "Donations of Alexandria" (34
+        BCE) Antony distributed Roman eastern provinces to her and her
+        children as kingdoms — propaganda gold for [[augustus|Octavian]].
+        After defeat at the [[battle-of-actium]] (31 BCE), Antony killed
+        himself on a false report of her death; she followed days or
+        weeks later, in [[plutarch|Plutarch's]] account by the bite of
+        an asp, in modern scholarship's by some other means. Egypt was
+        annexed as a Roman imperial province under direct equestrian
+        rule, the first such arrangement.
         """,
-        ["ptolemaic-egypt", "julius-caesar", "mark-antony", "rome", "battle-of-actium", "augustus", "alexandria"],
+        ["ptolemaic-egypt", "plutarch", "alexandria", "julius-caesar", "pompey", "rome", "ides-of-march", "mark-antony", "augustus", "battle-of-actium"],
     ),
     "cicero": (
         "person",
@@ -953,15 +1382,37 @@ ROME_PEOPLE: dict[str, tuple[str, str, list[str]]] = {
     "hannibal": (
         "person",
         """
-        Hannibal Barca (247–c. 183 BCE), Carthaginian general of the
-        [[second-punic-war]], crossed the Alps with elephants and crushed
-        the Romans at Trebia, Trasimene, and most spectacularly
-        [[battle-of-cannae|Cannae]] (216 BCE). Outmaneuvered by Fabius'
-        delaying strategy and finally beaten by [[scipio-africanus]] at
-        Zama in 202 BCE, he spent his last years as an exiled adviser to
-        Hellenistic kings before taking poison to avoid Roman capture.
+        Hannibal Barca (247–c. 183/181 BCE), Carthaginian general, son of
+        Hamilcar Barca (commander of [[carthage|Carthaginian]] forces in
+        Sicily during the [[first-punic-war]]) and brother of Hasdrubal
+        Barca and Mago. As a boy he reportedly swore on an altar an
+        oath of eternal enmity to [[rome]]. He took command of the
+        Carthaginian army in Spain in 221 BCE at twenty-six and provoked
+        the [[second-punic-war]] in 218 BCE by besieging Saguntum. His
+        crossing of the Alps in autumn 218 — with somewhere between 38
+        and 60 elephants, of which only one (Surus) survived the first
+        winter — brought him into Italy at the head of perhaps 26,000
+        troops. He crushed Roman armies at the Trebia (218), Lake
+        Trasimene (217, where the consul Flaminius was killed and three
+        legions destroyed in an ambush), and most spectacularly at
+        [[battle-of-cannae|Cannae]] (2 August 216 BCE), where he
+        enveloped and destroyed a Roman force of roughly 80,000 — perhaps
+        the most studied tactical victory in Western military history.
+        Rome lost an estimated 50,000–70,000 men in a single day; the
+        gold rings of the dead equestrians filled, [[livy]] says, three
+        bushels. Yet Rome refused to negotiate. Fabius Maximus' delaying
+        strategy ("Cunctator") denied Hannibal pitched battle; his brother
+        Hasdrubal was killed at the Metaurus (207) before he could
+        reinforce; and [[scipio-africanus|Scipio's]] invasion of Africa
+        forced Hannibal home, where Scipio defeated him at
+        [[battle-of-zama|Zama]] in 202 BCE. After the war he served as
+        Carthaginian suffete and reformer until Roman pressure drove him
+        into exile at the court of the Seleucid Antiochus III, then
+        Prusias I of Bithynia. He took poison around 183 BCE rather than
+        be handed over to Roman extradition. Principal sources: Polybius,
+        Livy books 21–30, Plutarch's Fabius and Marcellus, Appian.
         """,
-        ["second-punic-war", "battle-of-cannae", "scipio-africanus", "carthage"],
+        ["carthage", "first-punic-war", "rome", "second-punic-war", "battle-of-cannae", "livy", "scipio-africanus", "battle-of-zama"],
     ),
     "scipio-africanus": (
         "person",
@@ -1065,9 +1516,132 @@ ROME_PEOPLE: dict[str, tuple[str, str, list[str]]] = {
         reorganizing the empire under the Tetrarchy — two senior
         emperors (Augusti) and two junior (Caesars). His reforms shaped
         the late-Roman bureaucratic state and set the stage for
-        [[constantine]].
+        [[constantine]]. He launched the last and most severe pagan
+        persecution of Christians (303–311). Uniquely among Roman
+        emperors he voluntarily abdicated (305 CE) and retired to his
+        palace at Split, where he reportedly told a visitor urging him
+        back to power to come see the cabbages he was growing.
         """,
         ["constantine"],
+    ),
+    "tiberius": (
+        "person",
+        """
+        Tiberius (42 BCE – 37 CE), stepson and successor of [[augustus]],
+        second Roman emperor. Able general and reluctant ruler, he
+        retired to Capri in 26 CE leaving the empire largely to his
+        Praetorian prefect Sejanus, whose conspiracy he eventually
+        crushed in 31. Tacitus and Suetonius painted him in increasingly
+        dark colors; the historical Tiberius was probably gloomier and
+        more competent than the monster of [[tacitus|Tacitus']] [[annals]].
+        """,
+        ["augustus", "tacitus", "annals"],
+    ),
+    "vespasian": (
+        "person",
+        """
+        Vespasian (9–79 CE), Roman emperor, founder of the Flavian
+        dynasty. A successful general in Britain and Judaea (where he
+        was suppressing the First Jewish Revolt when proclaimed
+        emperor), he emerged as the winner of the Year of the Four
+        Emperors (69 CE). Restored stability after [[nero|Nero's]] chaos,
+        began the Colosseum, and is famous for the dry remark on his
+        deathbed: *vae, puto deus fio* — "alas, I think I am becoming
+        a god." His son [[titus]] completed the Jewish War with the
+        sack of Jerusalem in 70 CE.
+        """,
+        ["nero", "titus"],
+    ),
+    "titus": (
+        "person",
+        """
+        Titus (39–81 CE), Roman emperor, son of [[vespasian]]. As his
+        father's general he ended the First Jewish Revolt by sacking
+        Jerusalem and destroying the Second Temple in 70 CE (commemorated
+        on the Arch of Titus in [[rome]]). His brief reign as emperor
+        saw the eruption of Vesuvius (79 CE, burying Pompeii and
+        Herculaneum), a great fire in Rome, and the inauguration of the
+        Colosseum. Died of fever after two years.
+        """,
+        ["vespasian", "rome"],
+    ),
+    "domitian": (
+        "person",
+        """
+        Domitian (51–96 CE), younger son of [[vespasian]] and last Flavian
+        emperor. Capable administrator, increasingly autocratic and
+        paranoid; insisted on being addressed as *dominus et deus*
+        ("lord and god"). Murdered in a palace conspiracy that included
+        his own wife; the Senate decreed damnatio memoriae and gleefully
+        appointed the elderly senator Nerva, beginning the line of the
+        [[five-good-emperors|Five Good Emperors]].
+        """,
+        ["vespasian", "five-good-emperors"],
+    ),
+    "nerva": (
+        "person",
+        """
+        Nerva (c. 30–98 CE), elderly senator chosen by the Senate to
+        succeed [[domitian]] in 96 CE. His sixteen-month reign mattered
+        chiefly for one act: adopting [[trajan]] as his heir, beginning
+        the practice of selecting the best available successor that
+        defined the [[five-good-emperors|Five Good Emperors]] from him
+        to [[marcus-aurelius]].
+        """,
+        ["domitian", "trajan", "five-good-emperors", "marcus-aurelius"],
+    ),
+    "antoninus-pius": (
+        "person",
+        """
+        Antoninus Pius (86–161 CE), Roman emperor, adopted successor of
+        [[hadrian]] and predecessor of [[marcus-aurelius]]. His
+        twenty-three-year reign is the quietest of the [[five-good-emperors|Five
+        Good Emperors]] — almost no narrative survives because almost
+        nothing went wrong. The high noon of the [[pax-romana]].
+        """,
+        ["hadrian", "marcus-aurelius", "five-good-emperors", "pax-romana"],
+    ),
+    "caracalla": (
+        "person",
+        """
+        Caracalla (188–217 CE), Roman emperor of the Severan dynasty,
+        murdered his brother Geta in their mother's arms to secure sole
+        rule, and in 212 CE issued the Constitutio Antoniniana extending
+        Roman citizenship to nearly all free inhabitants of the empire
+        — the largest single expansion of citizenship in human history,
+        partly motivated by extending the inheritance tax base. He was
+        assassinated by a soldier on campaign against Parthia.
+        """,
+        [],
+    ),
+    "theodosius": (
+        "person",
+        """
+        Theodosius I (347–395 CE) was the last emperor to rule both
+        eastern and western halves of the Roman Empire. He made Nicene
+        Christianity the state religion by the Edict of Thessalonica
+        (380), suppressed pagan worship and closed the temples (including
+        the [[athens|Athenian]] Eleusinian Mysteries and the Olympic
+        Games), and on his death partitioned the empire between his sons
+        Arcadius (East) and Honorius (West) — a division that proved
+        permanent.
+        """,
+        ["athens"],
+    ),
+    "julian-the-apostate": (
+        "person",
+        """
+        Julian (331–363 CE), Roman emperor and the last pagan to hold
+        the throne, nephew of [[constantine]]. Raised Christian but
+        privately converted to Hellenic paganism, he attempted on
+        accession (361) to restore the old religion, reopen the
+        temples, and curb the Christian church — including reportedly
+        a project to rebuild the Jerusalem Temple. Killed by a Persian
+        spear after eighteen months, on a Persian campaign that recalled
+        [[alexander-the-great|Alexander's]] but ended like
+        [[crassus|Crassus']].
+        """,
+        ["constantine", "alexander-the-great", "crassus"],
     ),
 }
 
@@ -1232,6 +1806,34 @@ ROME_WORKS: dict[str, tuple[str, str, list[str]]] = {
         """,
         ["lucretius", "epicureanism"],
     ),
+    "res-gestae": (
+        "work",
+        """
+        The Res Gestae Divi Augusti — "Achievements of the Divine
+        Augustus" — is the first-person summary of [[augustus|Augustus']]
+        career that he composed late in life and ordered inscribed on
+        bronze pillars at his mausoleum in [[rome]]. Provincial copies in
+        Latin and Greek survive, most completely on the walls of the
+        Temple of Augustus and Roma at Ancyra (modern Ankara). It is the
+        most important political autobiography from antiquity — every
+        omission as informative as every claim.
+        """,
+        ["augustus", "rome"],
+    ),
+    "meditations": (
+        "work",
+        """
+        The Meditations of [[marcus-aurelius]], written in Greek under
+        the title *Ta eis heauton* — "to himself" — across the late
+        years of his reign while on campaign on the Danube, is a
+        private notebook of [[stoicism|Stoic]] self-exhortation never
+        intended for publication. Twelve short books of disconnected
+        entries, repetitive and meditative, on death, duty, the
+        cosmos, and the rule of reason. The most-read work of practical
+        philosophy from antiquity.
+        """,
+        ["marcus-aurelius", "stoicism"],
+    ),
 }
 
 ROME_EVENTS: dict[str, tuple[str, str, list[str]]] = {
@@ -1291,12 +1893,77 @@ ROME_EVENTS: dict[str, tuple[str, str, list[str]]] = {
     "battle-of-cannae": (
         "event",
         """
-        At Cannae (216 BCE), [[hannibal]] enveloped and destroyed a Roman
-        army roughly twice his size — one of the worst defeats in Roman
-        history and a tactical masterpiece still taught in military
-        academies as the model of double envelopment.
+        At Cannae (2 August 216 BCE), [[hannibal]] enveloped and
+        destroyed a Roman army of roughly 80,000 men under the consuls
+        Varro and Aemilius Paullus — perhaps 50,000–70,000 killed in a
+        single afternoon. Hannibal weakened his center deliberately,
+        letting it bow inward as the Romans pressed forward, while his
+        Spanish and African heavy infantry held the flanks and his
+        Numidian and Spanish cavalry routed the Roman horse and circled
+        behind. The Romans were enveloped on all sides and slaughtered.
+        Still taught in military academies as the model of double
+        envelopment; Schlieffen's 1905 plan against France was an
+        explicit attempt to repeat it.
         """,
         ["hannibal"],
+    ),
+    "battle-of-zama": (
+        "event",
+        """
+        At Zama (October 202 BCE), [[scipio-africanus]] defeated
+        [[hannibal]] in North Africa, ending the [[second-punic-war]].
+        Scipio had studied Hannibal's tactics; he opened lanes in his
+        infantry to let Hannibal's elephants pass through harmlessly,
+        and his returning Numidian cavalry under Masinissa repeated
+        against Hannibal what Hannibal's cavalry had done at
+        [[battle-of-cannae|Cannae]] — falling on the enemy infantry
+        from behind. Carthage sued for peace.
+        """,
+        ["scipio-africanus", "hannibal", "second-punic-war", "battle-of-cannae"],
+    ),
+    "battle-of-carrhae": (
+        "event",
+        """
+        At Carrhae (June 53 BCE), [[crassus]] led seven legions deep
+        into Parthian territory in pursuit of glory to match
+        [[julius-caesar|Caesar's]] in Gaul. The Parthian general Surena,
+        commanding mounted archers supplied by an enormous baggage train
+        of arrows, encircled and shot the Romans to pieces in the open
+        desert. Crassus' son Publius was killed, then Crassus himself
+        under flag of truce; molten gold was reportedly poured down his
+        throat in mockery of his greed. The defeat destabilized the
+        [[fall-of-the-republic|First Triumvirate]] and lost seven legionary
+        eagles that [[augustus]] later negotiated back as the
+        propaganda centerpiece of his Parthian settlement.
+        """,
+        ["crassus", "julius-caesar", "fall-of-the-republic", "augustus"],
+    ),
+    "battle-of-pharsalus": (
+        "event",
+        """
+        At Pharsalus in Thessaly (9 August 48 BCE), [[julius-caesar]]
+        defeated [[pompey]] in the decisive battle of their civil war.
+        Outnumbered roughly 22,000 to 45,000, Caesar held a fourth line
+        of reserves who, instead of throwing pila at Pompey's cavalry,
+        thrust them at the riders' faces — routing the cavalry and
+        exposing Pompey's left flank. Pompey fled to Egypt where Ptolemy
+        XIII's courtiers murdered him on the beach to curry favor with
+        the victor.
+        """,
+        ["julius-caesar", "pompey"],
+    ),
+    "battle-of-philippi": (
+        "event",
+        """
+        At Philippi in Macedonia (October 42 BCE), the armies of the
+        Second Triumvirate — [[augustus|Octavian]] and [[mark-antony]] —
+        defeated the Liberators Brutus and Cassius in two engagements.
+        Cassius killed himself after the first, mistakenly believing
+        Brutus had been defeated; Brutus killed himself after the
+        second. The battle ended the republican cause; thereafter the
+        only question was which Caesarian faction would rule.
+        """,
+        ["augustus", "mark-antony"],
     ),
     "gallic-wars": (
         "event",
@@ -1343,6 +2010,23 @@ ROME_EVENTS: dict[str, tuple[str, str, list[str]]] = {
         """,
         ["augustus", "marcus-aurelius", "commodus"],
     ),
+    "crisis-of-the-third-century": (
+        "event",
+        """
+        The Crisis of the Third Century (235–284 CE) was a fifty-year
+        spiral of civil war, plague, currency debasement, Sasanid
+        Persian and Germanic invasion, and breakaway empires (the
+        Gallic Empire in the west, the Palmyrene Empire under Zenobia
+        in the east) in which the Roman Empire nearly disintegrated.
+        Over twenty emperors and pretenders held power in fifty years,
+        most ending violently. [[diocletian|Diocletian's]] Tetrarchy
+        (284) imposed a new political settlement that ended the crisis
+        at the cost of transforming the empire into a more militarized,
+        more bureaucratic state — the "dominate" rather than the
+        principate.
+        """,
+        ["diocletian"],
+    ),
     "fall-of-the-republic": (
         "event",
         """
@@ -1355,6 +2039,116 @@ ROME_EVENTS: dict[str, tuple[str, str, list[str]]] = {
         principate of [[augustus]] replaced them.
         """,
         ["gallic-wars", "battle-of-actium", "rome", "augustus"],
+    ),
+}
+
+ROME_CONCEPTS: dict[str, tuple[str, str, list[str]]] = {
+    "roman-republic": (
+        "concept",
+        """
+        The Roman Republic (509–27 BCE) was the constitutional regime
+        founded after the expulsion of Tarquinius Superbus and ended in
+        practice by the [[fall-of-the-republic|civil wars]] that brought
+        [[augustus]] to power. Its central institutions were the two
+        annual consuls (with mutual veto), the Senate (advisory but in
+        practice dominant), and the popular assemblies (comitia centuriata,
+        tributa, and plebis). The "struggle of the orders" (494–287 BCE)
+        gradually opened offices to plebeians and created the tribunate.
+        It expanded from a city to a Mediterranean empire across these
+        five centuries — and that expansion eventually destroyed it.
+        """,
+        ["fall-of-the-republic", "augustus"],
+    ),
+    "roman-empire": (
+        "concept",
+        """
+        The Roman Empire is the post-republican Roman state (27 BCE –
+        476 CE in the West, 1453 in the East as the
+        [[byzantine-empire]]). Conventionally divided into the principate
+        (from [[augustus]] to the [[crisis-of-the-third-century|crisis
+        of the third century]]) and the dominate (from [[diocletian]]
+        on, with overt monarchical court ritual). At its height under
+        [[trajan]] it stretched from Britain to Mesopotamia and from
+        the Rhine to the Sahara.
+        """,
+        ["byzantine-empire", "augustus", "crisis-of-the-third-century", "diocletian", "trajan"],
+    ),
+    "five-good-emperors": (
+        "concept",
+        """
+        The "Five Good Emperors" — [[nerva]], [[trajan]], [[hadrian]],
+        [[antoninus-pius]], and [[marcus-aurelius]] (96–180 CE) — is
+        Machiavelli's coinage for the line of adoptive successors that
+        gave the empire its longest stretch of competent rule. The
+        succession by adoption rather than blood broke down when Marcus
+        Aurelius passed the throne to his actual son [[commodus]] — the
+        eighteenth-century historian Gibbon treated this moment as the
+        beginning of Rome's long decline.
+        """,
+        ["nerva", "trajan", "hadrian", "antoninus-pius", "marcus-aurelius", "commodus"],
+    ),
+    "senate": (
+        "concept",
+        """
+        The Roman Senate was an advisory council of c. 300 (later 600,
+        under [[julius-caesar]] briefly 900) ex-magistrates who served
+        for life. It had no formal legislative power but its *senatus
+        consulta* carried such weight that for centuries no consul
+        ignored them. Under the empire it retained ceremonial dignity
+        while real power flowed to the emperor; [[tiberius]] preserved
+        the forms, [[caligula]] mocked them, [[domitian]] terrorized it.
+        """,
+        ["julius-caesar", "tiberius", "caligula", "domitian"],
+    ),
+    "consul": (
+        "concept",
+        """
+        Consul was the highest annual magistracy of the [[roman-republic]],
+        held in pairs with mutual veto, with command of armies in the
+        field. The office continued under the empire as honorific. Year
+        names in Roman dating were the consuls' names ("in the
+        consulship of so-and-so"). Famous consulships: [[cicero|Cicero's]]
+        (63 BCE, Catiline), [[julius-caesar|Caesar's]] (59 BCE).
+        """,
+        ["roman-republic", "cicero", "julius-caesar"],
+    ),
+    "dictator": (
+        "concept",
+        """
+        Dictator was an extraordinary Roman magistracy for a single
+        emergency, capped at six months, with supreme authority and
+        nominally above appeal. Used cleanly through the early Republic
+        (Cincinnatus, called from his plough to defeat the Aequi and
+        return to it in two weeks, is the proverbial example). [[sulla]]
+        broke the form by holding it without time limit; [[julius-caesar]]
+        broke it further by holding *dictator perpetuo*. After Caesar's
+        murder the office was formally abolished.
+        """,
+        ["sulla", "julius-caesar"],
+    ),
+    "imperium": (
+        "concept",
+        """
+        Imperium was the formal power of supreme command — military and
+        civil — held by Roman magistrates: consuls, praetors,
+        proconsuls, dictators. It was the basis of the emperor's
+        position; [[augustus|Augustus']] settlement consolidated multiple
+        kinds of imperium (proconsular over the militarized provinces,
+        tribunician for the city) into a single dominant office without
+        ever giving it a new name.
+        """,
+        ["augustus"],
+    ),
+    "pax-romana-concept": (
+        "concept",
+        """
+        See the [[pax-romana]] event note for the period itself. The
+        *concept* of a "Roman peace" — internal stability bought by
+        unchallengeable military dominance — became a template invoked
+        in every later imperial ideology, from the British and French
+        empires to the American "Pax Americana."
+        """,
+        ["pax-romana"],
     ),
 }
 
@@ -1770,6 +2564,7 @@ SECTIONS = [
     ("rome/works", ROME_WORKS),
     ("rome/events", ROME_EVENTS),
     ("rome/places", ROME_PLACES),
+    ("rome/concepts", ROME_CONCEPTS),
     ("byzantium", BYZANTIUM),
     ("mythology", MYTH),
 ]

@@ -10,21 +10,22 @@ A benchmark corpus on Greco-Roman antiquity for retrieval comparison
 
 ## Sections
 
-- **greece/people** — 21 notes
+- **greece/people** — 34 notes
 - **greece/literature** — 8 notes
-- **greece/works** — 13 notes
-- **greece/events** — 7 notes
+- **greece/works** — 15 notes
+- **greece/events** — 9 notes
 - **greece/places** — 8 notes
-- **greece/concepts** — 8 notes
-- **rome/people** — 20 notes
+- **greece/concepts** — 12 notes
+- **rome/people** — 29 notes
 - **rome/literature** — 9 notes
-- **rome/works** — 5 notes
-- **rome/events** — 11 notes
+- **rome/works** — 7 notes
+- **rome/events** — 16 notes
 - **rome/places** — 4 notes
+- **rome/concepts** — 8 notes
 - **byzantium** — 8 notes
 - **mythology** — 27 notes
 
 ## Stats
 
-- Total notes: **149**
-- Total link references: **431**
+- Total notes: **194**
+- Total link references: **572**

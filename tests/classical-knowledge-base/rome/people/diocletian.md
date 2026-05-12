@@ -9,7 +9,11 @@ Diocletian (244–311 CE) ended the third-century crisis by
 reorganizing the empire under the Tetrarchy — two senior
 emperors (Augusti) and two junior (Caesars). His reforms shaped
 the late-Roman bureaucratic state and set the stage for
-[[constantine]].
+[[constantine]]. He launched the last and most severe pagan
+persecution of Christians (303–311). Uniquely among Roman
+emperors he voluntarily abdicated (305 CE) and retired to his
+palace at Split, where he reportedly told a visitor urging him
+back to power to come see the cabbages he was growing.
 
 ## Connections
 
