@@ -178,6 +178,36 @@ tasks:
     cmds:
       - CORTEX_ENCODER=gemini uv run python -m experiments.bridge.service
 
+  bench:install:
+    desc: Install benchmark deps (rank-bm25, sentence-transformers, google-genai)
+    cmds:
+      - uv sync --group bench
+
+  bench:lite:
+    desc: Run BM25 + dense retrievers (no Rust core needed)
+    cmds:
+      - uv run python -m experiments.benchmark.runner --retrievers bm25,dense {{.CLI_ARGS}}
+
+  bench:full:
+    desc: Run BM25 + dense + cortex (needs the Rust core running with the classical KB ingested)
+    cmds:
+      - uv run python -m experiments.benchmark.runner --retrievers bm25,dense,cortex {{.CLI_ARGS}}
+
+  bench:cortex-ingest:
+    desc: Ingest the classical KB into the running cortex via /api/vault/ingest
+    cmds:
+      - uv run python experiments/scripts/bootstrap_vault.py --vault tests/classical-knowledge-base
+
+  bench:train:
+    desc: 'Run training episodes against the cortex: task bench:train -- --episodes 100'
+    cmds:
+      - uv run python -m experiments.benchmark.episodes {{.CLI_ARGS}}
+
+  bench:corpus-stats:
+    desc: Print corpus stats for the classical KB
+    cmds:
+      - uv run python -m experiments.benchmark.corpus tests/classical-knowledge-base
+
   docker:up:
     desc: docker compose up -d (postgres + core image)
     cmds:
