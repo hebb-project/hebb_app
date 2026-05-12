@@ -1,0 +1,9 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Baseline capabilities granted to the main window. Extended per-feature as new IPC commands land (vault picker in COR-35, keychain in COR-34, subprocess control in COR-33).",
+  "windows": ["main"],
+  "permissions": [
+    "core:default"
+  ]
+}
