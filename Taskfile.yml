@@ -173,6 +173,11 @@ tasks:
     cmds:
       - CORTEX_ENCODER=haiku uv run python -m experiments.bridge.service
 
+  bridge:gemini:
+    desc: Run the bridge with the Gemini label-matching encoder (needs GOOGLE_API_KEY)
+    cmds:
+      - CORTEX_ENCODER=gemini uv run python -m experiments.bridge.service
+
   docker:up:
     desc: docker compose up -d (postgres + core image)
     cmds:
