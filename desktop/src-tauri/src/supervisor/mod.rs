@@ -21,11 +21,13 @@
 //! query/restart processes. All internal mutation happens behind
 //! `tokio::sync::Mutex` / `RwLock`; nothing in here is blocking.
 
+pub mod postgres;
 pub mod process;
 
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+pub use postgres::{EmbeddedPostgres, ExternalPostgres, PostgresHandle, PostgresProvider};
 pub use process::{ManagedProcess, ProcessConfig, ProcessStatus, RestartPolicy, State};
 
 /// Top-level supervisor: a registry of managed subprocesses.
