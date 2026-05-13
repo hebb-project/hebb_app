@@ -28,6 +28,31 @@ export type CortexWeightFrame = {
   deltas: CortexWeightDelta[];
 };
 
+export type CortexSearchResult = {
+  node_id: string;
+  label: string;
+  node_type: string;
+  source_file: string | null;
+  score: number;
+  snippet: string | null;
+  highlights: string[];
+};
+
+export type CortexSearchResponse = {
+  query: string;
+  results: CortexSearchResult[];
+};
+
+export type VaultIngestSummary = {
+  files_seen: number;
+  nodes_created: number;
+  nodes_existing: number;
+  edges_created: number;
+  edges_existing: number;
+  total_nodes: number;
+  total_edges: number;
+};
+
 const DEFAULT_HTTP =
   process.env.NEXT_PUBLIC_CORTEX_HTTP ?? "http://127.0.0.1:8080";
 
@@ -56,6 +81,25 @@ async function unwrap<T>(r: Response): Promise<T> {
 
 export async function fetchGraph(base?: string): Promise<{ nodes: CortexNode[]; edges: CortexEdge[] }> {
   const r = await fetch(`${cortexHttpBase(base)}/api/graph`, { cache: "no-store" });
+  return unwrap(r);
+}
+
+export async function searchVault(
+  query: string,
+  limit = 8,
+  base?: string,
+): Promise<CortexSearchResponse> {
+  const params = new URLSearchParams({ q: query, limit: String(limit) });
+  const r = await fetch(`${cortexHttpBase(base)}/api/search?${params}`, { cache: "no-store" });
+  return unwrap(r);
+}
+
+export async function ingestVault(path?: string, base?: string): Promise<VaultIngestSummary> {
+  const r = await fetch(`${cortexHttpBase(base)}/api/vault/ingest`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(path?.trim() ? { path: path.trim() } : {}),
+  });
   return unwrap(r);
 }
 

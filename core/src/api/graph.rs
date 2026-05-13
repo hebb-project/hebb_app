@@ -141,7 +141,15 @@ pub async fn get_full_graph(
     }).await?;
 
     Ok(ok(serde_json::json!({
-        "nodes": n,
+        "nodes": n.into_iter().map(strip_search_body).collect::<Vec<_>>(),
         "edges": e,
     })))
+}
+
+fn strip_search_body(row: NodeRow) -> serde_json::Value {
+    let mut value = serde_json::to_value(row).unwrap_or_else(|_| serde_json::json!({}));
+    if let Some(metadata) = value.get_mut("metadata").and_then(|m| m.as_object_mut()) {
+        metadata.remove("body_text");
+    }
+    value
 }

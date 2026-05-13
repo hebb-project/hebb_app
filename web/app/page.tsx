@@ -3,9 +3,9 @@
 import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import { ChatPanel } from "@/components/ChatPanel";
-import { DriveDashboard } from "@/components/DriveDashboard";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Header } from "@/components/Header";
+import { VaultSearchPanel } from "@/components/VaultSearchPanel";
 import { DEFAULT_PALETTE, type StateKey } from "@/lib/state";
 
 // ConnectomeView is canvas-only with two WS subscriptions and an rAF
@@ -37,7 +37,7 @@ const ConnectomeView = dynamic(
 );
 
 const CHAT_WIDTH = 320;
-const DRIVES_WIDTH = 360;
+const SEARCH_WIDTH = 360;
 const NODE_COUNT = 140;
 // Enable live mode by default; flip off with NEXT_PUBLIC_CORTEX_LIVE=0.
 const LIVE = process.env.NEXT_PUBLIC_CORTEX_LIVE !== "0";
@@ -77,10 +77,12 @@ export default function Home() {
             />
           </ErrorBoundary>
           <ErrorBoundary>
-            <DriveDashboard
-              width={DRIVES_WIDTH}
-              stateKey={stateKey}
-              palette={DEFAULT_PALETTE}
+            <VaultSearchPanel
+              width={SEARCH_WIDTH}
+              live={LIVE}
+              onStimulate={() => {
+                if (stateKey === "idle") setStateKey("active");
+              }}
             />
           </ErrorBoundary>
         </div>

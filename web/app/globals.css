@@ -239,6 +239,10 @@ html, body {
 }
 .btn-send:hover { filter: brightness(1.1); }
 .btn-send:active { filter: brightness(0.92); }
+.btn-send:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 
 .chat-future-btns {
   margin-top: 10px;
@@ -263,6 +267,119 @@ html, body {
 .stub-dot {
   width: 4px; height: 4px; border-radius: 50%;
   background: var(--muted-2);
+}
+
+/* ── Vault search panel ───────────────────────────────────────────────── */
+.vault-search {
+  flex: 0 0 auto;
+  border-left: 1px solid var(--border-2);
+}
+.vault-search-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 4px 14px 14px;
+  scrollbar-width: thin;
+  scrollbar-color: #1f2933 transparent;
+}
+.vault-search-copy {
+  color: #9aa4af;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 4px 0 12px;
+}
+.vault-search-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.vault-path-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+  margin-bottom: 8px;
+}
+.vault-search-status {
+  color: var(--muted-2);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  margin: 9px 0 12px;
+}
+.vault-results {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.vault-result {
+  width: 100%;
+  text-align: left;
+  background: #0a0d12;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--fg);
+  cursor: pointer;
+  padding: 9px 10px;
+  transition: border-color 120ms, background 120ms, transform 120ms;
+}
+.vault-result:hover {
+  background: rgba(125,249,255,0.045);
+  border-color: rgba(125,249,255,0.28);
+  transform: translateY(-1px);
+}
+.vault-result-top {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted-2);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.vault-result-title {
+  color: #e6edf3;
+  font-size: 13px;
+  margin-top: 4px;
+}
+.vault-result-snippet {
+  color: #9aa4af;
+  font-size: 11.5px;
+  line-height: 1.45;
+  margin-top: 5px;
+}
+.vault-result-path {
+  color: var(--muted-2);
+  font-size: 9.5px;
+  margin-top: 7px;
+}
+.vault-selected {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--border-2);
+  background: var(--panel);
+  padding-bottom: 14px;
+}
+.vault-selected-card {
+  margin: 0 14px;
+  padding: 10px;
+  border: 1px solid rgba(125,249,255,0.2);
+  background: rgba(125,249,255,0.045);
+  border-radius: 5px;
+}
+.vault-highlight-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 8px;
+}
+.vault-highlight-row span {
+  color: #7df9ff;
+  background: rgba(125,249,255,0.06);
+  border: 1px solid rgba(125,249,255,0.14);
+  border-radius: 999px;
+  font-size: 9px;
+  padding: 3px 6px;
+}
+.vault-empty {
+  color: var(--muted-2);
+  padding: 0 14px;
+  font-size: 11px;
 }
 
 /* ── Connectome panel ───────────────────────────────────────────────────── */
