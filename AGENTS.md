@@ -5,6 +5,7 @@ This repo is a multi-agent research workspace. Assume other agents may be workin
 ## Coordination
 
 - Work in an isolated branch or worktree for non-trivial edits.
+- Never add code or vault changes directly on `main`; create a branch/worktree first, even for planning notes or research logs.
 - Do not overwrite or revert changes you did not make.
 - Check `git status --short --branch` before editing and before handing off.
 - Make small, logically scoped commits when a unit of work is complete.
