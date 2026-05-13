@@ -12,7 +12,7 @@
 //! itself behaves.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde::Serialize;
 use walkdir::WalkDir;
@@ -82,6 +82,8 @@ pub fn parse_vault(root: &Path) -> std::io::Result<VaultParseSummary> {
             metadata.entry("body_tags".to_string())
                 .or_insert(serde_json::json!(tags));
         }
+        metadata.insert("body_excerpt".to_string(), serde_json::json!(excerpt(body, 280)));
+        metadata.insert("body_text".to_string(), serde_json::json!(truncate_for_search(body, 20_000)));
 
         let node_type = infer_node_type(&rel, &metadata);
         nodes_by_label.insert(label.clone(), ParsedNode {
@@ -212,6 +214,19 @@ fn extract_hashtags(body: &str) -> Vec<String> {
     out
 }
 
+fn excerpt(body: &str, max_chars: usize) -> String {
+    let compact = body.split_whitespace().collect::<Vec<_>>().join(" ");
+    truncate_for_search(&compact, max_chars)
+}
+
+fn truncate_for_search(body: &str, max_chars: usize) -> String {
+    let mut out = String::new();
+    for ch in body.chars().take(max_chars) {
+        out.push(ch);
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -229,5 +244,10 @@ mod tests {
         let (fm, body) = split_frontmatter(raw);
         assert_eq!(fm, Some("tags: [foo]"));
         assert_eq!(body, "body here\n");
+    }
+
+    #[test]
+    fn excerpt_compacts_whitespace() {
+        assert_eq!(excerpt("alpha\n\n beta   gamma", 80), "alpha beta gamma");
     }
 }

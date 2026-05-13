@@ -2,6 +2,7 @@
 
 pub mod graph;
 pub mod health;
+pub mod search;
 pub mod stimulate;
 pub mod state;
 pub mod vault;
@@ -28,6 +29,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/graph/nodes/:id", get(graph::get_node).delete(graph::delete_node))
         .route("/api/graph/edges", get(graph::list_edges).post(graph::create_edge))
         .route("/api/graph/edges/:id", delete(graph::delete_edge))
+        .route("/api/search", get(search::search_nodes))
         .route("/api/stimulate", post(stimulate::post_stimulate))
         .route("/api/vault/ingest", post(vault::post_ingest))
         .route("/api/graph/weights", get(weights::get_weights_snapshot))
