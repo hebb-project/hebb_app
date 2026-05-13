@@ -223,6 +223,27 @@ tasks:
     cmds:
       - docker compose down -v
 
+  # ── desktop (Tauri shell — see vault/ideas/adr-001-tauri-vs-electron.md) ─
+  desktop:install:
+    desc: Install desktop shell deps (Tauri 2 CLI)
+    dir: desktop
+    cmds:
+      - npm install
+
+  desktop:dev:
+    desc: Run the Tauri shell (boots Next dev server + opens a webview window)
+    dir: desktop
+    deps: [desktop:install]
+    cmds:
+      - npm run dev
+
+  desktop:build:
+    desc: Build a desktop bundle (release artifacts under desktop/src-tauri/target/release)
+    dir: desktop
+    deps: [desktop:install]
+    cmds:
+      - npm run build
+
   # ── python (experiments / training layer) ───────────────────────────────
   py:install:
     desc: Install Python deps via uv (or pip if no uv)
