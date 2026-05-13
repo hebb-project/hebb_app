@@ -22,6 +22,14 @@ serde_json = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
+# Subprocess supervisor (COR-33). Multi-threaded runtime so the Tauri
+# main thread doesn't block on supervisor tasks; `process` is the tokio
+# feature gate for `tokio::process::Command`; `io-util` gives the
+# buffered async readers used to forward child stdout/stderr.
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "io-util", "sync", "time", "signal"] }
+anyhow = "1"
+thiserror = "2"
+
 [profile.release]
 lto = "thin"
 codegen-units = 1
