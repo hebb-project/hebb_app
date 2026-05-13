@@ -27,6 +27,16 @@ pub struct CoreConfig {
     /// Simulation tick rate in Hz. 200Hz → dt = 5ms.
     #[serde(default = "default_tick_hz")]
     pub tick_hz: u32,
+
+    /// Spike persister timer-driven flush cadence in milliseconds.
+    #[serde(default = "default_spike_persist_interval_ms")]
+    pub spike_persist_interval_ms: u64,
+
+    /// Spike persister buffer size that forces an early flush before
+    /// the timer fires (whichever hits first). Bounds buffer growth
+    /// during high-spike-rate stimulation.
+    #[serde(default = "default_spike_persist_max_batch")]
+    pub spike_persist_max_batch: usize,
 }
 
 fn default_model_store_path() -> PathBuf { PathBuf::from("./data/models") }
@@ -35,6 +45,8 @@ fn default_ws_port() -> u16 { 8080 }
 fn default_vault_path() -> PathBuf { PathBuf::from("./tests/mock-knowledge-base") }
 fn default_cors_allow_origin() -> String { "*".to_string() }
 fn default_tick_hz() -> u32 { 200 }
+fn default_spike_persist_interval_ms() -> u64 { 250 }
+fn default_spike_persist_max_batch() -> usize { 2_000 }
 
 impl CoreConfig {
     pub fn from_env() -> anyhow::Result<Self> {

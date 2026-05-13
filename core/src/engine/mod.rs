@@ -4,9 +4,11 @@
 
 pub mod events;
 pub mod sim;
+pub mod spike_persist;
 
 pub use events::{SpikeEvent, SpikeFrame, WeightDelta, WeightFrame};
 pub use sim::SimEngine;
+pub use spike_persist::spawn_spike_persister;
 
 use std::time::Duration;
 use tokio::sync::{broadcast, mpsc, oneshot};
