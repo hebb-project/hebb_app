@@ -27,7 +27,7 @@ use crate::api::AppState;
 use crate::config::CoreConfig;
 use crate::db::models::{EdgeRow, NodeRow};
 use crate::db::schema::{edges, nodes};
-use crate::engine::{spawn_engine, spawn_weight_persister};
+use crate::engine::{spawn_engine, spawn_spike_persister, spawn_weight_persister};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -44,7 +44,22 @@ async fn main() -> anyhow::Result<()> {
     let (engine, engine_join) = spawn_engine(cfg.tick_hz);
     hydrate_engine(&pool, &engine).await?;
 
-    // Sibling persister — fire-and-forget; exits cleanly when the
+    // Spike persister — drains the spike broadcast into spike_log on
+    // a periodic flush (or buffer-full). Fire-and-forget; exits when
+    // the broadcast closes on shutdown.
+    let _spike_persister = spawn_spike_persister(
+        engine.clone(),
+        pool.clone(),
+        cfg.spike_persist_interval_ms,
+        cfg.spike_persist_max_batch,
+    );
+    tracing::info!(
+        spike_interval_ms = cfg.spike_persist_interval_ms,
+        spike_max_batch = cfg.spike_persist_max_batch,
+        "spike persister spawned"
+    );
+
+    // Weight persister — fire-and-forget; exits cleanly when the
     // engine channels close on shutdown.
     let _weight_persister = spawn_weight_persister(
         engine.clone(),
