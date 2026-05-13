@@ -27,6 +27,17 @@ pub struct CoreConfig {
     /// Simulation tick rate in Hz. 200Hz → dt = 5ms.
     #[serde(default = "default_tick_hz")]
     pub tick_hz: u32,
+
+    /// Weight persister flush cadence in milliseconds. Trades
+    /// fresh-on-disk for write volume.
+    #[serde(default = "default_weight_persist_interval_ms")]
+    pub weight_persist_interval_ms: u64,
+
+    /// Minimum absolute weight change since the last persisted value
+    /// required to issue an UPDATE. Filters STDP trace noise on stable
+    /// edges so we don't write every tick.
+    #[serde(default = "default_weight_persist_epsilon")]
+    pub weight_persist_epsilon: f32,
 }
 
 fn default_model_store_path() -> PathBuf { PathBuf::from("./data/models") }
@@ -35,6 +46,8 @@ fn default_ws_port() -> u16 { 8080 }
 fn default_vault_path() -> PathBuf { PathBuf::from("./tests/mock-knowledge-base") }
 fn default_cors_allow_origin() -> String { "*".to_string() }
 fn default_tick_hz() -> u32 { 200 }
+fn default_weight_persist_interval_ms() -> u64 { 7_000 }
+fn default_weight_persist_epsilon() -> f32 { 0.001 }
 
 impl CoreConfig {
     pub fn from_env() -> anyhow::Result<Self> {
