@@ -37,6 +37,17 @@ pub struct CoreConfig {
     /// during high-spike-rate stimulation.
     #[serde(default = "default_spike_persist_max_batch")]
     pub spike_persist_max_batch: usize,
+
+    /// Weight persister flush cadence in milliseconds. Trades
+    /// fresh-on-disk for write volume.
+    #[serde(default = "default_weight_persist_interval_ms")]
+    pub weight_persist_interval_ms: u64,
+
+    /// Minimum absolute weight change since the last persisted value
+    /// required to issue an UPDATE. Filters STDP trace noise on stable
+    /// edges so we don't write every tick.
+    #[serde(default = "default_weight_persist_epsilon")]
+    pub weight_persist_epsilon: f32,
 }
 
 fn default_model_store_path() -> PathBuf { PathBuf::from("./data/models") }
@@ -47,6 +58,8 @@ fn default_cors_allow_origin() -> String { "*".to_string() }
 fn default_tick_hz() -> u32 { 200 }
 fn default_spike_persist_interval_ms() -> u64 { 250 }
 fn default_spike_persist_max_batch() -> usize { 2_000 }
+fn default_weight_persist_interval_ms() -> u64 { 7_000 }
+fn default_weight_persist_epsilon() -> f32 { 0.001 }
 
 impl CoreConfig {
     pub fn from_env() -> anyhow::Result<Self> {

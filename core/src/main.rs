@@ -27,7 +27,7 @@ use crate::api::AppState;
 use crate::config::CoreConfig;
 use crate::db::models::{EdgeRow, NodeRow};
 use crate::db::schema::{edges, nodes};
-use crate::engine::{spawn_engine, spawn_spike_persister};
+use crate::engine::{spawn_engine, spawn_spike_persister, spawn_weight_persister};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -44,7 +44,7 @@ async fn main() -> anyhow::Result<()> {
     let (engine, engine_join) = spawn_engine(cfg.tick_hz);
     hydrate_engine(&pool, &engine).await?;
 
-    // Sibling persister — drains the spike broadcast into spike_log on
+    // Spike persister — drains the spike broadcast into spike_log on
     // a periodic flush (or buffer-full). Fire-and-forget; exits when
     // the broadcast closes on shutdown.
     let _spike_persister = spawn_spike_persister(
@@ -57,6 +57,20 @@ async fn main() -> anyhow::Result<()> {
         spike_interval_ms = cfg.spike_persist_interval_ms,
         spike_max_batch = cfg.spike_persist_max_batch,
         "spike persister spawned"
+    );
+
+    // Weight persister — fire-and-forget; exits cleanly when the
+    // engine channels close on shutdown.
+    let _weight_persister = spawn_weight_persister(
+        engine.clone(),
+        pool.clone(),
+        cfg.weight_persist_interval_ms,
+        cfg.weight_persist_epsilon,
+    );
+    tracing::info!(
+        weight_interval_ms = cfg.weight_persist_interval_ms,
+        weight_epsilon = cfg.weight_persist_epsilon,
+        "weight persister spawned"
     );
 
     let state = AppState {
@@ -112,6 +126,13 @@ async fn shutdown_signal() {
 
 /// Load existing graph rows from Postgres into the live engine. Cheap at
 /// M0 scale; will need streaming later.
+///
+/// COR-30: trained STDP weights survive restart because `EdgeRow.weight`
+/// is forwarded into `engine.ingest_batch`, which passes it to
+/// `SimEngine::add_edge` → `StdpSynapse::new(... weight)`. So this
+/// loader + `spawn_weight_persister` together form the round-trip:
+/// in-memory weights flushed to `edges.weight`, then read back here on
+/// the next boot.
 async fn hydrate_engine(pool: &db::PgPool, engine: &engine::SimHandle) -> anyhow::Result<()> {
     let (node_rows, edge_rows): (Vec<NodeRow>, Vec<EdgeRow>) = db::run_blocking(pool, |conn| {
         let ns = nodes::table.select(NodeRow::as_select()).load(conn)?;
