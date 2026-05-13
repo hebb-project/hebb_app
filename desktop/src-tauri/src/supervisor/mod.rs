@@ -32,6 +32,29 @@ pub use core::{wait_for_health, CoreLauncher};
 pub use postgres::{EmbeddedPostgres, ExternalPostgres, PostgresHandle, PostgresProvider};
 pub use process::{ManagedProcess, ProcessConfig, ProcessStatus, RestartPolicy, State};
 
+use serde::Serialize;
+
+/// Bootstrap-flow state machine. Distinct from `ProcessStatus::state`
+/// because bootstrap covers the *sequence* (PG → core → health) — a
+/// per-process state can't express "PG ready but core not yet."
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum BootstrapState {
+    Pending,
+    Starting { step: &'static str },
+    Ready,
+    Failed { reason: String },
+}
+
+/// One-shot snapshot the frontend renders. Bundles bootstrap + per-
+/// process state so the diagnostics pane (COR-86) renders from one
+/// IPC call.
+#[derive(Debug, Clone, Serialize)]
+pub struct SupervisorOverview {
+    pub bootstrap: BootstrapState,
+    pub processes: Vec<ProcessStatus>,
+}
+
 /// Top-level supervisor: a registry of managed subprocesses + an
 /// optional Postgres provider.
 ///
@@ -44,10 +67,16 @@ pub use process::{ManagedProcess, ProcessConfig, ProcessStatus, RestartPolicy, S
 /// [`Supervisor::register`], install the Postgres provider via
 /// [`Supervisor::start_postgres`], then call
 /// [`Supervisor::shutdown_all`] on the Tauri window-close hook.
-#[derive(Default)]
 pub struct Supervisor {
     processes: RwLock<Vec<Arc<ManagedProcess>>>,
     postgres: RwLock<Option<PostgresEntry>>,
+    bootstrap: RwLock<BootstrapState>,
+}
+
+impl Default for Supervisor {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 struct PostgresEntry {
@@ -60,7 +89,14 @@ impl Supervisor {
         Self {
             processes: RwLock::new(Vec::new()),
             postgres: RwLock::new(None),
+            bootstrap: RwLock::new(BootstrapState::Pending),
         }
+    }
+
+    /// Update the bootstrap state. Called by `lib::bootstrap` at each
+    /// transition so the frontend can render progress and errors.
+    pub async fn set_bootstrap(&self, state: BootstrapState) {
+        *self.bootstrap.write().await = state;
     }
 
     /// Register a managed process. The supervisor takes a strong
@@ -86,24 +122,29 @@ impl Supervisor {
         Ok(handle)
     }
 
-    /// Snapshot every service's status. The Postgres entry, when
-    /// present, surfaces as a synthetic `Running { pid: 0 }` — pid 0
-    /// signals "no local OS handle" (embedded crate owns it, or it's
-    /// external). The frontend can distinguish by name suffix
-    /// (`postgres (embedded)` vs `postgres (external)`).
-    pub async fn status_all(&self) -> Vec<ProcessStatus> {
-        let mut out = Vec::new();
+    /// Snapshot the full supervisor state. Bundles bootstrap flow +
+    /// per-process status so the frontend reads one IPC call.
+    ///
+    /// The Postgres entry, when present, surfaces as a synthetic
+    /// `Running { pid: 0 }` — pid 0 signals "no local OS handle"
+    /// (embedded crate owns it, or it's external). Frontend can
+    /// disambiguate by the `postgres (embedded|external)` name suffix.
+    pub async fn overview(&self) -> SupervisorOverview {
+        let mut processes = Vec::new();
         if let Some(entry) = self.postgres.read().await.as_ref() {
-            out.push(ProcessStatus {
+            processes.push(ProcessStatus {
                 name: format!("postgres ({})", entry.handle.provider),
                 state: State::Running { pid: 0 },
             });
         }
         let procs = self.processes.read().await;
         for p in procs.iter() {
-            out.push(p.status().await);
+            processes.push(p.status().await);
         }
-        out
+        SupervisorOverview {
+            bootstrap: self.bootstrap.read().await.clone(),
+            processes,
+        }
     }
 
     /// Best-effort graceful shutdown. Managed processes stop first in

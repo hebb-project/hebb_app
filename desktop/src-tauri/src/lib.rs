@@ -12,16 +12,18 @@ mod supervisor;
 use std::sync::Arc;
 
 use supervisor::{
-    wait_for_health, CoreLauncher, PostgresProvider, ProcessStatus, Supervisor,
+    wait_for_health, BootstrapState, CoreLauncher, PostgresProvider, Supervisor,
+    SupervisorOverview,
 };
 
-/// IPC: snapshot every managed subprocess's status. Frontend reads this
-/// to render the (future) diagnostics pane.
+/// IPC: full supervisor snapshot (bootstrap flow + per-process). One
+/// IPC call so the diagnostics pane (COR-86) renders from a single
+/// fetch.
 #[tauri::command]
 async fn supervisor_status(
     supervisor: tauri::State<'_, Arc<Supervisor>>,
-) -> Result<Vec<ProcessStatus>, String> {
-    Ok(supervisor.status_all().await)
+) -> Result<SupervisorOverview, String> {
+    Ok(supervisor.overview().await)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -51,8 +53,17 @@ pub fn run() {
             // state.
             let supervisor = supervisor_for_setup.clone();
             tauri::async_runtime::spawn(async move {
-                if let Err(e) = bootstrap(supervisor).await {
-                    tracing::error!(error = %e, "supervisor bootstrap failed");
+                if let Err(e) = bootstrap(&supervisor).await {
+                    let reason = format!("{e:#}");
+                    tracing::error!(error = %reason, "supervisor bootstrap failed");
+                    supervisor
+                        .set_bootstrap(BootstrapState::Failed { reason })
+                        .await;
+                    // CLEANUP: a failure between start_postgres and
+                    // wait_for_health would leak embedded Postgres
+                    // until window-close. Tear it down (and any
+                    // already-spawned child) now.
+                    supervisor.shutdown_all().await;
                 }
             });
             Ok(())
@@ -72,22 +83,36 @@ pub fn run() {
         .expect("error while running tauri application");
 }
 
-/// Start Postgres → spawn core → wait for `/health`. Errors surface
-/// via tracing; the frontend learns about failures by seeing
-/// `Stopped`/`Failed` rows in `supervisor_status`.
-async fn bootstrap(supervisor: Arc<Supervisor>) -> anyhow::Result<()> {
+/// Start Postgres → spawn core → wait for `/health`. Each step
+/// updates `BootstrapState::Starting { step }` before running, so the
+/// frontend can render progress. On Err, the caller (`setup` hook)
+/// transitions to `Failed { reason }` and runs `shutdown_all` to
+/// avoid leaking the embedded PG process when a downstream step
+/// fails.
+async fn bootstrap(supervisor: &Arc<Supervisor>) -> anyhow::Result<()> {
+    supervisor
+        .set_bootstrap(BootstrapState::Starting { step: "postgres" })
+        .await;
     tracing::info!("supervisor: starting postgres");
     let pg = PostgresProvider::from_env();
     let pg_handle = supervisor.start_postgres(pg).await?;
     tracing::info!(provider = pg_handle.provider, "supervisor: postgres ready");
 
+    supervisor
+        .set_bootstrap(BootstrapState::Starting { step: "core" })
+        .await;
     tracing::info!("supervisor: spawning core");
     let launcher = CoreLauncher::from_env(pg_handle.url.clone())?;
     let (process, bind) = launcher.into_process();
     let process = supervisor.register(process).await;
     process.spawn().await?;
+
+    supervisor
+        .set_bootstrap(BootstrapState::Starting { step: "health" })
+        .await;
     wait_for_health(&bind).await?;
     tracing::info!(bind, "supervisor: core ready");
 
+    supervisor.set_bootstrap(BootstrapState::Ready).await;
     Ok(())
 }

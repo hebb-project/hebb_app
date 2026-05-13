@@ -43,7 +43,18 @@ impl EmbeddedPostgres {
             // under the crate's cache, random ephemeral port. We pin
             // user/password so the URL we hand the core is stable
             // across restarts even if the port shifts.
+            // SECURITY: force `host = "127.0.0.1"`. The crate's default
+            // accepts whatever the OS picks, which on some platforms
+            // could surface on a non-loopback interface. Combined with
+            // the hardcoded postgres/postgres credentials this would
+            // be catastrophic on a shared network — so we lock the
+            // bind down explicitly here.
+            //
+            // The hardcoded password is acceptable ONLY because we
+            // bind loopback-only. Rotating to a per-install random
+            // password is tracked separately as a hardening item.
             let settings = Settings {
+                host: "127.0.0.1".into(),
                 username: "postgres".into(),
                 password: "postgres".into(),
                 ..Default::default()
