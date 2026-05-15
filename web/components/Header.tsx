@@ -6,9 +6,11 @@ type Props = {
   stateKey: StateKey;
   spikeRate: number;
   uptime: number;
+  networkName: string;
+  onOpenStart: () => void;
 };
 
-export function Header({ stateKey, spikeRate, uptime }: Props) {
+export function Header({ stateKey, spikeRate, uptime, networkName, onOpenStart }: Props) {
   const preset = STATE_PRESETS[stateKey];
   const online = stateKey !== "offline";
   return (
@@ -17,6 +19,9 @@ export function Header({ stateKey, spikeRate, uptime }: Props) {
         <span className={`pulse-dot ${online ? "on" : "off"}`} />
         <span className="mono brand">Connectome Visualizer</span>
         <span className="mono brand-version">· v0</span>
+        <button className="header-link mono" type="button" onClick={onOpenStart}>
+          {networkName}
+        </button>
       </div>
       <div className="header-right mono">
         <span className="readout">

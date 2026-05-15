@@ -15,6 +15,10 @@ use supervisor::{
     wait_for_health, BootstrapState, CoreLauncher, PostgresProvider, Supervisor,
     SupervisorOverview,
 };
+use tauri::{
+    menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
+    Emitter,
+};
 
 /// IPC: full supervisor snapshot (bootstrap flow + per-process). One
 /// IPC call so the diagnostics pane (COR-86) renders from a single
@@ -40,7 +44,48 @@ pub fn run() {
     let supervisor_for_close = supervisor.clone();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(supervisor)
+        .menu(|app| {
+            let new_window = MenuItem::with_id(
+                app,
+                "file:new-window",
+                "New Window",
+                true,
+                Some("CmdOrCtrl+N"),
+            )?;
+            let open_network = MenuItem::with_id(
+                app,
+                "file:open-network",
+                "Open Network...",
+                true,
+                Some("CmdOrCtrl+O"),
+            )?;
+            let file = Submenu::with_items(
+                app,
+                "File",
+                true,
+                &[
+                    &new_window,
+                    &open_network,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::close_window(app, None::<&str>)?,
+                ],
+            )?;
+            Menu::with_items(app, &[&file])
+        })
+        .on_menu_event(|app, event| {
+            let payload = match event.id().as_ref() {
+                "file:new-window" => Some("new-window"),
+                "file:open-network" => Some("open-network"),
+                _ => None,
+            };
+            if let Some(payload) = payload {
+                if let Err(e) = app.emit("cortex://file-menu", payload) {
+                    tracing::warn!(error = %e, "failed to emit file menu action");
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![supervisor_status])
         .setup(move |_app| {
             tracing::info!(

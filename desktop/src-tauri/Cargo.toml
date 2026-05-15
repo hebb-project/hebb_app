@@ -38,6 +38,7 @@ postgresql_embedded = { version = "0.18", default-features = true }
 
 # Postgres URL parsing for the External provider's reachability check.
 url = "2"
+tauri-plugin-dialog = "2.7.1"
 
 [profile.release]
 lto = "thin"

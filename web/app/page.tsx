@@ -5,7 +5,9 @@ import { useEffect, useState } from "react";
 import { ChatPanel } from "@/components/ChatPanel";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Header } from "@/components/Header";
+import { StartScreen, type NetworkRecord } from "@/components/StartScreen";
 import { VaultSearchPanel } from "@/components/VaultSearchPanel";
+import { onDesktopMenuAction } from "@/lib/desktop";
 import { DEFAULT_PALETTE, type StateKey } from "@/lib/state";
 
 // ConnectomeView is canvas-only with two WS subscriptions and an rAF
@@ -43,6 +45,7 @@ const NODE_COUNT = 140;
 const LIVE = process.env.NEXT_PUBLIC_CORTEX_LIVE !== "0";
 
 export default function Home() {
+  const [network, setNetwork] = useState<NetworkRecord | null>(null);
   const [stateKey, setStateKey] = useState<StateKey>("idle");
   const [spikeRate, setSpikeRate] = useState(0);
   const [uptime, setUptime] = useState(347);
@@ -53,10 +56,40 @@ export default function Home() {
     return () => clearInterval(id);
   }, [stateKey]);
 
+  useEffect(() => {
+    let dispose = () => {};
+    onDesktopMenuAction((action) => {
+      if (action === "new-window" || action === "open-network") {
+        setNetwork(null);
+        setStateKey("idle");
+        setSpikeRate(0);
+        setUptime(0);
+      }
+    }).then((unlisten) => {
+      dispose = unlisten;
+    });
+
+    return () => dispose();
+  }, []);
+
+  if (!network) {
+    return (
+      <ErrorBoundary>
+        <StartScreen onOpen={setNetwork} />
+      </ErrorBoundary>
+    );
+  }
+
   return (
     <ErrorBoundary>
       <div className="app">
-        <Header stateKey={stateKey} spikeRate={spikeRate} uptime={uptime} />
+        <Header
+          stateKey={stateKey}
+          spikeRate={spikeRate}
+          uptime={uptime}
+          networkName={network.name}
+          onOpenStart={() => setNetwork(null)}
+        />
         <div className="cols">
           <ErrorBoundary>
             <ChatPanel
