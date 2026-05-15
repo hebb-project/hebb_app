@@ -1,5 +1,8 @@
 "use client";
 
+import { listen } from "@tauri-apps/api/event";
+import { open } from "@tauri-apps/plugin-dialog";
+
 type TauriGlobal = Window & { __TAURI_INTERNALS__?: unknown };
 
 export type DesktopMenuAction = "new-window" | "open-network";
@@ -11,7 +14,6 @@ export function isTauriRuntime(): boolean {
 
 export async function pickDirectory(title: string): Promise<string | null> {
   if (isTauriRuntime()) {
-    const { open } = await import("@tauri-apps/plugin-dialog");
     const selected = await open({
       title,
       directory: true,
@@ -28,7 +30,6 @@ export async function onDesktopMenuAction(
 ): Promise<() => void> {
   if (!isTauriRuntime()) return () => {};
 
-  const { listen } = await import("@tauri-apps/api/event");
   const unlisten = await listen<DesktopMenuAction>("cortex://file-menu", (event) => {
     handler(event.payload);
   });
