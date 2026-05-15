@@ -2,7 +2,7 @@
 name = "long-horizon-cortex-desktop"
 version = "0.0.1"
 edition = "2021"
-description = "Tauri 2 desktop shell for the Long Horizon Cortex"
+description = "Tauri 2 desktop shell for Cortex"
 publish = false
 
 # `lib` produces the library half (so `main.rs` can call into `lib.rs::run`

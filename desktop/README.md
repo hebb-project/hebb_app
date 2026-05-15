@@ -1,6 +1,6 @@
 # desktop/
 
-Tauri 2 shell for the Long Horizon Cortex desktop app.
+Tauri 2 shell for the Cortex desktop app.
 
 The frontend lives in [`../web`](../web) and is loaded by the shell as a
 static export (production) or by attaching to the Next.js dev server

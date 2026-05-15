@@ -15,8 +15,8 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "connectome-visualization · v0",
-  description: "Connectome-style interface for the long-horizon cortex agent",
+  title: "Cortex",
+  description: "Desktop and web interface for the Cortex research substrate.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

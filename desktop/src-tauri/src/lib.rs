@@ -1,4 +1,4 @@
-//! Long Horizon Cortex — desktop shell.
+//! Cortex — desktop shell.
 //!
 //! The Tauri "main process": owns the OS interface, the window, and
 //! the managed subprocesses for Postgres, the Rust core, and (later)
