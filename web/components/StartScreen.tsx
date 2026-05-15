@@ -179,8 +179,8 @@ export function StartScreen({ onOpen }: Props) {
       <section className="start-shell">
         <div className="start-heading">
           <div>
-            <div className="start-kicker mono">Long Horizon Cortex</div>
-            <h1>Open a cortex folder</h1>
+            <div className="start-kicker mono">Cortex</div>
+            <h1>Select an environment</h1>
           </div>
           <div className="start-status mono">{status}</div>
         </div>
