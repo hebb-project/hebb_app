@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Long Horizon Cortex",
+  "productName": "Cortex",
   "version": "0.0.1",
   "identifier": "com.cortex-mechanism.desktop",
   "build": {
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Long Horizon Cortex",
+        "title": "Cortex",
         "width": 1440,
         "height": 900,
         "minWidth": 1024,
@@ -29,6 +29,6 @@
     "active": false,
     "targets": "all",
     "category": "DeveloperTool",
-    "shortDescription": "Personal cortex desktop shell"
+    "shortDescription": "Desktop shell for Cortex"
   }
 }

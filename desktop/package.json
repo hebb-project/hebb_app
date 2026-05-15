@@ -2,7 +2,7 @@
   "name": "long-horizon-cortex-desktop",
   "version": "0.0.1",
   "private": true,
-  "description": "Tauri 2 desktop shell for the Long Horizon Cortex.",
+  "description": "Tauri 2 desktop shell for Cortex.",
   "scripts": {
     "dev": "tauri dev",
     "build": "tauri build",
