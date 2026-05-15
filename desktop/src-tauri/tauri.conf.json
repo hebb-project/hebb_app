@@ -4,10 +4,10 @@
   "version": "0.0.1",
   "identifier": "com.cortex-mechanism.desktop",
   "build": {
-    "beforeDevCommand": "npm --prefix ../../web run dev -- --port 3737",
-    "beforeBuildCommand": "npm --prefix ../../web run build",
+    "beforeDevCommand": "npm --prefix ../web run dev -- --port 3737",
+    "beforeBuildCommand": "npm --prefix ../web run build",
     "devUrl": "http://localhost:3737",
-    "frontendDist": "../../web/out"
+    "frontendDist": "../web/out"
   },
   "app": {
     "windows": [
