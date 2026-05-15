@@ -103,6 +103,44 @@ export async function ingestVault(path?: string, base?: string): Promise<VaultIn
   return unwrap(r);
 }
 
+export type CortexChatStimulus = {
+  node_id: string;
+  label: string;
+  current: number;
+  duration_ms: number;
+  score: number;
+};
+
+export type CortexChatActivation = {
+  node_id: string;
+  label: string;
+  spike_count: number;
+};
+
+export type CortexChatResponse = {
+  reply: string;
+  encoder: string;
+  stimulated: CortexChatStimulus[];
+  activated: CortexChatActivation[];
+};
+
+/**
+ * Hit `/api/chat` on the Rust core. The desktop ships this in-process
+ * — no Python bridge required. Mirrors the bridge's response shape so
+ * the UI is decoupled from which transport answered.
+ */
+export async function postChat(
+  message: string,
+  base?: string,
+): Promise<CortexChatResponse> {
+  const r = await fetch(`${cortexHttpBase(base)}/api/chat`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ message }),
+  });
+  return unwrap(r);
+}
+
 export async function postStimulate(
   nodeId: string,
   current: number,

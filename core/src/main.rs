@@ -16,6 +16,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
 mod api;
+mod chat;
 mod config;
 mod db;
 mod engine;
@@ -72,10 +73,14 @@ async fn main() -> anyhow::Result<()> {
         "weight persister spawned"
     );
 
+    let chat_encoder = chat::make_encoder();
+    tracing::info!(encoder = chat_encoder.name(), "chat encoder ready");
+
     let state = AppState {
         pool,
         engine,
         vault_path: Arc::new(cfg.vault_path.clone()),
+        chat_encoder,
     };
     let app = api::build_router(state);
 

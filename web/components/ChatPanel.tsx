@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { postChat, type CortexChatResponse } from "@/lib/cortex-api";
 
 type Msg = {
   role: "user" | "core";
@@ -16,39 +17,25 @@ const SEED_CHAT: Msg[] = [
 type Props = {
   width: number;
   onSend?: (text: string) => void;
-  /** Base URL of the Python bridge. Default reads NEXT_PUBLIC_BRIDGE_URL. */
-  bridgeUrl?: string;
-  /** When true, posts to the bridge; falls back to a mock reply on error. */
+  /**
+   * Optional explicit base URL. If unset, talks to the same Rust core
+   * the rest of the UI uses (NEXT_PUBLIC_CORTEX_HTTP, default
+   * http://127.0.0.1:8080). The legacy Python bridge no longer
+   * participates by default — Rust-side /api/chat handles it.
+   */
+  coreBase?: string;
+  /** When true, posts to the core; falls back to a mock reply on error. */
   live?: boolean;
 };
 
-const DEFAULT_BRIDGE =
-  process.env.NEXT_PUBLIC_BRIDGE_URL ?? "http://127.0.0.1:8181";
-
-type ChatReply = {
-  reply: string;
-  encoder: string;
-  stimulated: { label: string; current: number; score: number }[];
-  activated: { label: string; spike_count: number }[];
-};
-
-async function postChat(bridgeUrl: string, message: string): Promise<ChatReply> {
-  const r = await fetch(`${bridgeUrl.replace(/\/$/, "")}/chat`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ message }),
-  });
-  if (!r.ok) {
-    const text = await r.text().catch(() => "");
-    throw new Error(`bridge ${r.status}: ${text || r.statusText}`);
-  }
-  return r.json();
+async function sendChat(coreBase: string | undefined, message: string): Promise<CortexChatResponse> {
+  return postChat(message, coreBase);
 }
 
 export function ChatPanel({
   width,
   onSend,
-  bridgeUrl = DEFAULT_BRIDGE,
+  coreBase,
   live = true,
 }: Props) {
   const [messages, setMessages] = useState<Msg[]>(SEED_CHAT);
@@ -85,7 +72,7 @@ export function ChatPanel({
 
     setPending(true);
     try {
-      const reply = await postChat(bridgeUrl, text);
+      const reply = await sendChat(coreBase, text);
       setMessages((m) => [
         ...m,
         {
@@ -102,7 +89,7 @@ export function ChatPanel({
         ...m,
         {
           role: "core",
-          text: `bridge offline (${err instanceof Error ? err.message : "unknown"}). is the python service running on ${bridgeUrl}?`,
+          text: `core offline (${err instanceof Error ? err.message : "unknown"}). is the rust core running and a vault ingested?`,
         },
       ]);
     } finally {
