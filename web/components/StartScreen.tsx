@@ -2,7 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { ingestVault } from "@/lib/cortex-api";
-import { pickDirectory } from "@/lib/desktop";
+import {
+  initCortexFolder,
+  inspectCortexFolder,
+  isTauriRuntime,
+  pickDirectory,
+} from "@/lib/desktop";
 
 export type NetworkOrigin = "demo" | "knowledge-graph" | "fresh";
 
@@ -101,29 +106,31 @@ export function StartScreen({ onOpen }: Props) {
     if (selected) setFolderPath(selected);
   }
 
-  function detectMetadata(path: string): boolean {
-    return /(^|[/\\])(\.cortex|cortex\.json|cortex-metadata)([/\\]|$)/i.test(path);
-  }
-
   async function openFolder() {
     const selected = await pickDirectory("Open network folder");
     if (!selected) return;
 
     const existing = networks.find((network) => network.folderPath === selected);
     if (existing) {
+      // Re-inspect so the metadata flag reflects the on-disk truth, not
+      // the cached value from when the user first added this folder.
+      const info = await inspectCortexFolder(selected);
+      if (info) {
+        existing.hasMetadata = info.has_cortex;
+      }
       persistAndOpen(existing);
       return;
     }
 
-    const hasMetadata = detectMetadata(selected);
-    if (hasMetadata) {
+    const info = await inspectCortexFolder(selected);
+    if (info?.has_cortex) {
       persistAndOpen({
-        id: `existing-${Date.now()}`,
-        name: `${nameFromPath(selected, "Existing")} Cortex`,
-        origin: "knowledge-graph",
+        id: info.metadata?.id ?? `existing-${Date.now()}`,
+        name: info.metadata?.name ?? `${nameFromPath(selected, "Existing")} Cortex`,
+        origin: (info.metadata?.source_kind === "fresh" ? "fresh" : "knowledge-graph"),
         folderPath: selected,
-        hasMetadata,
-        createdAt: new Date().toISOString(),
+        hasMetadata: true,
+        createdAt: info.metadata?.created_at ?? new Date().toISOString(),
         lastOpenedAt: new Date().toISOString(),
       });
       return;
@@ -131,7 +138,13 @@ export function StartScreen({ onOpen }: Props) {
 
     setFolderPath(selected);
     setMode("knowledge-graph");
-    setStatus("No neural metadata detected yet. Initialize this folder or start fresh.");
+    if (info) {
+      setStatus("No .cortex/ metadata found. Initialize this folder to make it a cortex.");
+    } else if (!isTauriRuntime()) {
+      setStatus("Folder selected. Initialize from folder or start fresh.");
+    } else {
+      setStatus("Folder selected. Couldn't inspect — initialize to create .cortex/.");
+    }
   }
 
   async function createNetwork() {
@@ -155,13 +168,28 @@ export function StartScreen({ onOpen }: Props) {
 
     try {
       if (origin === "knowledge-graph") {
-        setStatus("Creating network from selected file system...");
+        setStatus("Initializing neural network from folder contents...");
         const summary = await ingestVault(network.folderPath);
         network.nodeEstimate = summary.total_nodes;
         network.edgeEstimate = summary.total_edges;
         setStatus(`Created ${summary.total_nodes} nodes and ${summary.total_edges} edges.`);
       } else {
-        setStatus("Creating fresh empty network environment...");
+        setStatus("Initializing fresh cortex in selected folder...");
+      }
+
+      // Always write the .cortex/ folder so subsequent opens recognize
+      // this directory as a Cortex network. For "fresh", this is the
+      // entire initialization. For "knowledge-graph", it sits next to
+      // the now-ingested SNN.
+      const info = await initCortexFolder(network.folderPath, network.name, origin);
+      if (info?.has_cortex) {
+        network.hasMetadata = true;
+        network.id = info.metadata?.id ?? network.id;
+        setStatus(
+          origin === "knowledge-graph"
+            ? `Neural network initialized · ${network.nodeEstimate ?? 0} nodes · .cortex/ written`
+            : "Fresh cortex initialized · .cortex/ written"
+        );
       }
 
       persistAndOpen(network);
