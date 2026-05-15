@@ -208,6 +208,11 @@ tasks:
     cmds:
       - uv run python -m experiments.benchmark.corpus tests/classical-knowledge-base
 
+  bench:judge:
+    desc: 'LLM-judge eval of cortex replies (needs running bridge + ANTHROPIC_API_KEY): task bench:judge -- --difficulty easy'
+    cmds:
+      - uv run python -m experiments.benchmark.judge_eval {{.CLI_ARGS}}
+
   docker:up:
     desc: docker compose up -d (postgres + core image)
     cmds:
