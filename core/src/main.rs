@@ -18,7 +18,6 @@ use tracing_subscriber::util::SubscriberInitExt;
 mod api;
 mod config;
 mod db;
-mod domain;
 mod engine;
 mod error;
 mod vault;

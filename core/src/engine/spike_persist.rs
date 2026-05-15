@@ -19,8 +19,8 @@ use tokio::sync::broadcast::error::RecvError;
 use crate::db::models::NewSpike;
 use crate::db::schema::spike_log;
 use crate::db::{run_blocking, PgPool};
-use crate::engine::events::SpikeFrame;
 use crate::engine::SimHandle;
+use cortex_snn::engine::events::SpikeFrame;
 
 /// Spawn the spike persister.
 ///
