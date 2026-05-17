@@ -275,6 +275,17 @@ tasks:
     cmds:
       - python main.py
 
+  py:snn:
+    desc: 'Build + install cortex-snn (Rust → Python) into the active venv via maturin.'
+    cmds:
+      - uv sync --group snn
+      - uv run maturin develop -m cortex-py/Cargo.toml --release
+
+  py:snn-smoke:
+    desc: Smoke-test that `import cortex_snn` works after py:snn.
+    cmds:
+      - uv run python experiments/scripts/snn_smoke.py
+
   py:repl:
     desc: Open a Python REPL with the project on path
     cmds:
