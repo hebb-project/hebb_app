@@ -29,8 +29,30 @@ tasks:
       - task: py:install
 
   dev:
-    desc: Run the full stack in dev (web only for now; core/py added when they exist)
-    deps: [web:dev]
+    desc: |
+      Boot the full stack (Postgres + Rust core) with logs streaming
+      in this terminal. Ctrl-C → compose stops both containers
+      gracefully (SIGTERM → grace period → SIGKILL).
+      Run `task web:dev` (or `task desktop:dev`) in another terminal
+      to talk to it. `task dev:down` removes the stopped containers.
+    interactive: true
+    cmds:
+      # `--build` rebuilds the image on Dockerfile / source changes.
+      # `--abort-on-container-exit` so a core crash surfaces immediately
+      # instead of leaving you staring at a half-dead stack streaming
+      # only Postgres logs.
+      #
+      # No trap / explicit `down` here on purpose. Compose's own
+      # foreground-Ctrl-C handler is what you want — sends SIGTERM,
+      # waits the configured grace, then SIGKILL. Removing the
+      # containers on exit would force an image-cache reset and slow
+      # the next boot; if you want a clean slate run `task dev:down`.
+      - docker compose up --build --abort-on-container-exit
+
+  dev:down:
+    desc: Remove the stopped dev containers (keeps the cortex_pg_data volume).
+    cmds:
+      - docker compose down --remove-orphans
 
   build:
     desc: Build everything that can be built
