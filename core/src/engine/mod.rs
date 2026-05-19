@@ -1,14 +1,22 @@
-//! Engine actor: a single tokio task owns `SimEngine` and mutates it only
-//! via mpsc commands. Read-only views are served either via the broadcast
-//! channel (spike stream) or by a `Snapshot` command.
+//! Engine actor: a single tokio task owns the [`cortex_snn::SimEngine`]
+//! and mutates it only via mpsc commands. Read-only views are served
+//! either via the broadcast channel (spike stream) or by a `Snapshot`
+//! command.
+//!
+//! This module is the *concurrency wrapper* around the substrate; the
+//! deterministic simulator itself lives in the `cortex-snn` crate.
+//! `core`'s job is to make it usable from axum handlers and to plumb
+//! state in and out of the DB.
 
-pub mod events;
-pub mod sim;
 pub mod spike_persist;
 pub mod weight_persist;
 
-pub use events::{SpikeEvent, SpikeFrame, WeightDelta, WeightFrame};
-pub use sim::SimEngine;
+// Re-export the wire-event types so the rest of `core` (api/weights.rs,
+// the WS handler, etc.) doesn't need to know they originate in
+// cortex-snn. Lets us swap the substrate's serialization layer later
+// without churn across the handler layer.
+pub use cortex_snn::engine::events::{SpikeEvent, SpikeFrame, WeightDelta, WeightFrame};
+pub use cortex_snn::engine::sim::SimEngine;
 pub use spike_persist::spawn_spike_persister;
 pub use weight_persist::spawn_weight_persister;
 

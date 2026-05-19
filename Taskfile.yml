@@ -29,8 +29,30 @@ tasks:
       - task: py:install
 
   dev:
-    desc: Run the full stack in dev (web only for now; core/py added when they exist)
-    deps: [web:dev]
+    desc: |
+      Boot the full stack (Postgres + Rust core) with logs streaming
+      in this terminal. Ctrl-C → compose stops both containers
+      gracefully (SIGTERM → grace period → SIGKILL).
+      Run `task web:dev` (or `task desktop:dev`) in another terminal
+      to talk to it. `task dev:down` removes the stopped containers.
+    interactive: true
+    cmds:
+      # `--build` rebuilds the image on Dockerfile / source changes.
+      # `--abort-on-container-exit` so a core crash surfaces immediately
+      # instead of leaving you staring at a half-dead stack streaming
+      # only Postgres logs.
+      #
+      # No trap / explicit `down` here on purpose. Compose's own
+      # foreground-Ctrl-C handler is what you want — sends SIGTERM,
+      # waits the configured grace, then SIGKILL. Removing the
+      # containers on exit would force an image-cache reset and slow
+      # the next boot; if you want a clean slate run `task dev:down`.
+      - docker compose up --build --abort-on-container-exit
+
+  dev:down:
+    desc: Remove the stopped dev containers (keeps the cortex_pg_data volume).
+    cmds:
+      - docker compose down --remove-orphans
 
   build:
     desc: Build everything that can be built
@@ -208,6 +230,21 @@ tasks:
     cmds:
       - uv run python -m experiments.benchmark.corpus tests/classical-knowledge-base
 
+  bench:judge:
+    desc: 'LLM-judge eval of cortex replies (needs running bridge + ANTHROPIC_API_KEY): task bench:judge -- --difficulty easy'
+    cmds:
+      - uv run python -m experiments.benchmark.judge_eval {{.CLI_ARGS}}
+
+  bench:classical-pipeline:
+    desc: End-to-end on the classical KB — assumes core + bridge are already running.
+    cmds:
+      - echo "[1/3] ingesting tests/classical-knowledge-base into the cortex..."
+      - task: bench:cortex-ingest
+      - echo "[2/3] retrieval benchmark (bm25 + dense + cortex, k=5)..."
+      - task: bench:full
+      - echo "[3/3] LLM-judge eval of cortex replies..."
+      - task: bench:judge
+
   docker:up:
     desc: docker compose up -d (postgres + core image)
     cmds:
@@ -259,6 +296,17 @@ tasks:
     desc: Run main.py
     cmds:
       - python main.py
+
+  py:snn:
+    desc: 'Build + install cortex-snn (Rust → Python) into the active venv via maturin.'
+    cmds:
+      - uv sync --group snn
+      - uv run maturin develop -m cortex-py/Cargo.toml --release
+
+  py:snn-smoke:
+    desc: Smoke-test that `import cortex_snn` works after py:snn.
+    cmds:
+      - uv run python experiments/scripts/snn_smoke.py
 
   py:repl:
     desc: Open a Python REPL with the project on path

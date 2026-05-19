@@ -1953,6 +1953,7 @@ name = "long-horizon-cortex-desktop"
 version = "0.0.1"
 dependencies = [
  "anyhow",
+ "chrono",
  "postgresql_embedded",
  "serde",
  "serde_json",
@@ -1964,6 +1965,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "uuid",
 ]
 
 [[package]]

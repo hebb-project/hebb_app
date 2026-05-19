@@ -7,6 +7,7 @@
 //! UI lives in `../../web` and is loaded as a Next.js static export
 //! (`output: "export"`) — see `tauri.conf.json::build.frontendDist`.
 
+mod cortex_folder;
 mod supervisor;
 
 use std::sync::Arc;
@@ -86,7 +87,11 @@ pub fn run() {
                 }
             }
         })
-        .invoke_handler(tauri::generate_handler![supervisor_status])
+        .invoke_handler(tauri::generate_handler![
+            supervisor_status,
+            cortex_folder::inspect_cortex_folder,
+            cortex_folder::init_cortex_folder,
+        ])
         .setup(move |_app| {
             tracing::info!(
                 version = env!("CARGO_PKG_VERSION"),

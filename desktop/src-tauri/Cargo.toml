@@ -40,6 +40,13 @@ postgresql_embedded = { version = "0.18", default-features = true }
 url = "2"
 tauri-plugin-dialog = "2.7.1"
 
+# Timestamps + stable ids for `.cortex/metadata.json`. `chrono` for
+# RFC 3339 strings (the public JSON format); `uuid` v4 for the network
+# `id` field so it never collides if multiple networks live under the
+# same parent directory or get rsync'd between machines.
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde", "std"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+
 [profile.release]
 lto = "thin"
 codegen-units = 1

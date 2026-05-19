@@ -11,17 +11,38 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /build
 
-# Cache dependencies separately from source.
-COPY core/Cargo.toml core/Cargo.lock* ./
-RUN mkdir src && echo "fn main() {}" > src/main.rs \
-    && cargo build --release --locked \
-    && rm -rf src target/release/deps/core-* target/release/core*
+# ── dep-cache prime ──
+# Copy the workspace manifest + each member's manifest, then build with
+# empty stub sources. This populates `/build/target` with the entire
+# compiled dep graph so a real source change doesn't re-pull/re-compile
+# crates.io packages. The workspace root must contain the same set of
+# members the host has (core + cortex-snn); `desktop/src-tauri` and
+# `cortex-py` are excluded by `Cargo.toml`'s workspace.exclude list and
+# don't need to ship in the build context.
+COPY Cargo.toml Cargo.lock ./
+COPY core/Cargo.toml ./core/
+COPY cortex-snn/Cargo.toml ./cortex-snn/
 
-COPY core/src ./src
-COPY core/migrations ./migrations
-COPY core/diesel.toml ./diesel.toml
+RUN mkdir -p core/src cortex-snn/src \
+    && echo "fn main() {}" > core/src/main.rs \
+    && : > cortex-snn/src/lib.rs \
+    && cargo build --release --locked --package core --bin core \
+    && rm -rf core/src cortex-snn/src \
+        target/release/deps/core-* \
+        target/release/deps/cortex_snn-* \
+        target/release/deps/libcortex_snn-* \
+        target/release/.fingerprint/core-* \
+        target/release/.fingerprint/cortex-snn-* \
+        target/release/core* \
+        target/release/libcortex_snn*
 
-RUN cargo build --release --locked --bin core
+# ── real sources ──
+COPY core/src ./core/src
+COPY core/migrations ./core/migrations
+COPY core/diesel.toml ./core/diesel.toml
+COPY cortex-snn/src ./cortex-snn/src
+
+RUN cargo build --release --locked --package core --bin core
 
 # ─── runtime ──────────────────────────────────────────────────────────────
 FROM debian:bookworm-slim AS runtime
@@ -35,7 +56,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 COPY --from=builder /build/target/release/core /usr/local/bin/cortex-core
-COPY --from=builder /build/migrations /app/migrations
+COPY --from=builder /build/core/migrations /app/migrations
 
 # Bake the mock knowledge base in at /vault as the default ingest source.
 # Users override with a bind mount to their own vault in docker-compose
