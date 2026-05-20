@@ -18,6 +18,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 mod api;
 mod chat;
 mod config;
+mod cortex_type;
 mod db;
 mod engine;
 mod error;
