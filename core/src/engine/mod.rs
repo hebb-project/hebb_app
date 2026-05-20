@@ -24,6 +24,9 @@ use std::time::Duration;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use uuid::Uuid;
 
+use crate::cortex_type::CortexType;
+use cortex_snn::NeuronKind;
+
 /// Public, cloneable handle to the running engine task. Embed in axum's
 /// `AppState`.
 #[derive(Clone)]
@@ -52,6 +55,14 @@ pub enum EngineCommand {
     Snapshot(oneshot::Sender<EngineSnapshot>),
     /// One-shot weight snapshot: returns Vec<(edge_id, weight)>.
     WeightSnapshot(oneshot::Sender<Vec<(Uuid, f32)>>),
+    /// Swap the engine to a different cortex type. Wipes neuron + synapse
+    /// state — you can't mix LIF and HH neurons in the same `SimEngine`
+    /// without ambiguous input-current units, so reconfigure is a reset.
+    /// Reply fires after the swap is in effect; callers should re-ingest
+    /// topology afterward.
+    Configure { cortex_type: CortexType, reply: oneshot::Sender<()> },
+    /// Return the currently-active cortex type (for `GET /api/cortex`).
+    GetType(oneshot::Sender<CortexType>),
 }
 
 impl SimHandle {
@@ -102,6 +113,26 @@ impl SimHandle {
             .map_err(|_| "engine offline")?;
         rx.await.map_err(|_| "engine dropped reply")
     }
+
+    /// Wipe the engine and re-seed it as `cortex_type`. The caller is
+    /// responsible for re-ingesting nodes/edges afterward (the actor
+    /// doesn't replay DB state on its own — that's `hydrate_engine`'s
+    /// job at startup).
+    pub async fn configure(&self, cortex_type: CortexType) -> Result<(), &'static str> {
+        let (tx, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(EngineCommand::Configure { cortex_type, reply: tx })
+            .await
+            .map_err(|_| "engine offline")?;
+        rx.await.map_err(|_| "engine dropped reply")
+    }
+
+    pub async fn cortex_type(&self) -> Result<CortexType, &'static str> {
+        let (tx, rx) = oneshot::channel();
+        self.cmd_tx.send(EngineCommand::GetType(tx)).await
+            .map_err(|_| "engine offline")?;
+        rx.await.map_err(|_| "engine dropped reply")
+    }
 }
 
 /// Spawn the engine task. Returns a handle plus a join handle for
@@ -124,6 +155,14 @@ pub fn spawn_engine(tick_hz: u32) -> (SimHandle, tokio::task::JoinHandle<()>) {
 
     let join = tokio::spawn(async move {
         let mut engine = SimEngine::new();
+        // The actor's single source of truth for cortex type. Defaults
+        // to LIF — preserves the M0 boot behavior; `Configure` replaces
+        // both the engine and this value atomically. `AddNode` /
+        // `IngestBatch` consult this rather than calling
+        // `add_neuron` (which would hard-code LIF) so a freshly-
+        // configured HH engine gets HH neurons from the first insert.
+        let mut current_type: CortexType = CortexType::default();
+        let mut current_kind: NeuronKind = current_type.neuron_kind();
         let mut ticker = tokio::time::interval(tick_dur);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
@@ -139,11 +178,14 @@ pub fn spawn_engine(tick_hz: u32) -> (SimHandle, tokio::task::JoinHandle<()>) {
                 maybe_cmd = cmd_rx.recv() => {
                     let Some(cmd) = maybe_cmd else { break; };
                     match cmd {
-                        EngineCommand::AddNode(id) => engine.add_neuron(id),
+                        EngineCommand::AddNode(id) =>
+                            engine.add_neuron_with_kind(id, &current_kind),
                         EngineCommand::AddEdge { edge_id, pre, post, weight } =>
                             engine.add_edge(edge_id, pre, post, weight),
                         EngineCommand::IngestBatch { nodes, edges, reply } => {
-                            for id in nodes { engine.add_neuron(id); }
+                            for id in nodes {
+                                engine.add_neuron_with_kind(id, &current_kind);
+                            }
                             for (edge_id, pre, post, w) in edges {
                                 engine.add_edge(edge_id, pre, post, w);
                             }
@@ -162,6 +204,20 @@ pub fn spawn_engine(tick_hz: u32) -> (SimHandle, tokio::task::JoinHandle<()>) {
                         EngineCommand::WeightSnapshot(reply) => {
                             let _ = reply.send(engine.weight_snapshot());
                         }
+                        EngineCommand::Configure { cortex_type, reply } => {
+                            tracing::info!(
+                                from = %current_type.slug(),
+                                to = %cortex_type.slug(),
+                                "reconfiguring engine; wiping state"
+                            );
+                            engine = SimEngine::new();
+                            current_kind = cortex_type.neuron_kind();
+                            current_type = cortex_type;
+                            let _ = reply.send(());
+                        }
+                        EngineCommand::GetType(reply) => {
+                            let _ = reply.send(current_type.clone());
+                        }
                     }
                 }
             }
@@ -171,6 +227,48 @@ pub fn spawn_engine(tick_hz: u32) -> (SimHandle, tokio::task::JoinHandle<()>) {
     });
 
     (handle, join)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cortex_snn::{HhConfig, HhIntegrator};
+
+    /// Configure the engine to HH, drive it via inject() + tick(), and
+    /// assert a spike escapes the broadcast. Proves the actor wiring
+    /// (Configure → AddNode-uses-current-kind → SimEngine HH path) works
+    /// end-to-end. Uses a fine-grained tick rate (10 kHz → dt = 0.1 ms)
+    /// because Euler at the default 1 kHz wouldn't be stable for HH.
+    #[tokio::test]
+    async fn engine_reconfigured_to_hh_emits_spikes() {
+        let (handle, _join) = spawn_engine(10_000);
+        let mut spikes = handle.spikes.subscribe();
+        let cfg = HhConfig { integrator: HhIntegrator::Rk4, ..HhConfig::default() };
+        handle.configure(CortexType::Hh { config: cfg }).await.unwrap();
+
+        let id = Uuid::new_v4();
+        handle.add_node(id).await.unwrap();
+        handle.stimulate(id, 10.0, 200.0).await.unwrap();
+
+        // Drain spike broadcast for up to ~1 s wall-clock; with 10 kHz
+        // ticks the HH neuron should fire within tens of ms simulated.
+        let timeout = tokio::time::Duration::from_secs(1);
+        let got = tokio::time::timeout(timeout, async {
+            loop {
+                let frame = spikes.recv().await.unwrap();
+                if frame.events.iter().any(|e| e.node_id == id) {
+                    return true;
+                }
+            }
+        })
+        .await
+        .unwrap_or(false);
+        assert!(got, "HH neuron should spike after Configure + Stimulate");
+
+        // Round-trip the type query.
+        let ct = handle.cortex_type().await.unwrap();
+        assert_eq!(ct.slug(), "hh");
+    }
 }
 
 /// Periodically diff the live weight set against the last published one
