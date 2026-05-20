@@ -1,6 +1,7 @@
 //! HTTP + WebSocket surface.
 
 pub mod chat;
+pub mod cortex;
 pub mod graph;
 pub mod health;
 pub mod search;
@@ -33,6 +34,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/search", get(search::search_nodes))
         .route("/api/stimulate", post(stimulate::post_stimulate))
         .route("/api/chat", post(chat::post_chat))
+        .route("/api/cortex", get(cortex::get_current).post(cortex::post_configure))
         .route("/api/vault/ingest", post(vault::post_ingest))
         .route("/api/graph/weights", get(weights::get_weights_snapshot))
         .route("/ws/spikes", get(ws::ws_spikes))
