@@ -8,6 +8,7 @@
 //! (`output: "export"`) — see `tauri.conf.json::build.frontendDist`.
 
 mod cortex_folder;
+mod cortex_seeds;
 mod supervisor;
 
 use std::sync::Arc;
@@ -91,6 +92,7 @@ pub fn run() {
             supervisor_status,
             cortex_folder::inspect_cortex_folder,
             cortex_folder::init_cortex_folder,
+            cortex_seeds::seed_cortex_folder,
         ])
         .setup(move |_app| {
             tracing::info!(

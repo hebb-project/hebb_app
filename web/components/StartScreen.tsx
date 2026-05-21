@@ -14,6 +14,9 @@ import {
   inspectCortexFolder,
   isTauriRuntime,
   pickDirectory,
+  SeedKind,
+  SeedSpec,
+  seedCortexFolder,
 } from "@/lib/desktop";
 
 /**
@@ -161,11 +164,77 @@ async function pushCortexTypeToCore(
   }
 }
 
+/**
+ * Seed-network UI state. Only used when `cortexType ∈ {lif, hh}`; KG
+ * networks always derive topology from the source folder.
+ */
+type SeedUiState = {
+  enabled: boolean;
+  kind: SeedKind;
+  // Per-kind params. Kept as a single bag so switching kinds keeps the
+  // user's previous picks visible — UX nicety, no functional impact.
+  n: number;
+  k: number;
+  p: number;
+  pRewire: number;
+  layers: string; // comma-separated, parsed at submit time
+  seedValue: number;
+};
+
+const DEFAULT_SEED_UI: SeedUiState = {
+  enabled: false,
+  kind: "random",
+  n: 32,
+  k: 3,
+  p: 0.1,
+  pRewire: 0.2,
+  layers: "8, 16, 8",
+  seedValue: 0,
+};
+
+/**
+ * Translate the UI bag into the Tauri-facing `SeedSpec`. Returns
+ * either the spec or a human-readable error suitable for the status
+ * line. Validation is intentionally minimal — the Rust side is the
+ * real gate and returns substrate-quality error text.
+ */
+function buildSeedSpec(ui: SeedUiState): SeedSpec | { error: string } {
+  const config = { seed: ui.seedValue };
+  switch (ui.kind) {
+    case "random":
+      return { kind: "random", n: ui.n, p: ui.p, config };
+    case "ring":
+      return { kind: "ring", n: ui.n, k: ui.k, config };
+    case "small_world":
+      return {
+        kind: "small_world",
+        n: ui.n,
+        k: ui.k,
+        p_rewire: ui.pRewire,
+        config,
+      };
+    case "layered": {
+      const layers = ui.layers
+        .split(",")
+        .map((s) => Number.parseInt(s.trim(), 10))
+        .filter((n) => Number.isFinite(n));
+      if (layers.length < 2) {
+        return { error: "layered needs at least 2 layer sizes (e.g. \"8, 16, 8\")" };
+      }
+      if (layers.some((n) => n <= 0)) {
+        return { error: "every layer size must be a positive integer" };
+      }
+      return { kind: "layered", layers, config };
+    }
+  }
+}
+
 export function StartScreen({ onOpen }: Props) {
   const [networks, setNetworks] = useState<NetworkRecord[]>([DEMO_NETWORK]);
   const [cortexType, setCortexType] = useState<CortexTypeSlug>("knowledge-graph");
   const [hhIntegrator, setHhIntegrator] = useState<"euler" | "rk4">("euler");
   const [folderPath, setFolderPath] = useState("");
+  const [seedUi, setSeedUi] = useState<SeedUiState>(DEFAULT_SEED_UI);
   const [status, setStatus] = useState("Pick a cortex type, then choose the folder where it lives.");
   const [pending, setPending] = useState(false);
 
@@ -321,6 +390,31 @@ export function StartScreen({ onOpen }: Props) {
         );
       }
 
+      // 4. Optional seed pass (LIF/HH only; KG ingested its topology
+      //    in step 2). The Rust side is the real validator — any
+      //    failure here is reported in the status line but doesn't
+      //    block opening the (empty) network.
+      if (cortexType !== "knowledge-graph" && seedUi.enabled && info?.has_cortex) {
+        const built = buildSeedSpec(seedUi);
+        if ("error" in built) {
+          setStatus(`Seed skipped: ${built.error}`);
+        } else {
+          try {
+            const summary = await seedCortexFolder(network.folderPath, built);
+            if (summary) {
+              network.nodeEstimate = summary.added_nodes;
+              network.edgeEstimate = summary.added_edges;
+              setStatus(
+                `Seeded ${seedUi.kind.replace("_", "-")} network · ${summary.added_nodes} nodes · ${summary.added_edges} edges`,
+              );
+            }
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            setStatus(`Seed failed: ${message}`);
+          }
+        }
+      }
+
       await persistAndOpen(network);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -411,6 +505,120 @@ export function StartScreen({ onOpen }: Props) {
                   RK4 (stable to ~0.05 ms; ~4× cost)
                 </label>
               </div>
+            )}
+
+            {cortexType !== "knowledge-graph" && (
+              <details
+                className="seed-config"
+                open={seedUi.enabled}
+                onToggle={(e) =>
+                  setSeedUi((s) => ({ ...s, enabled: (e.target as HTMLDetailsElement).open }))
+                }
+              >
+                <summary className="mono">advanced — seed network</summary>
+                <div className="seed-config-body">
+                  <label className="seed-row">
+                    <span className="mono">generator</span>
+                    <select
+                      value={seedUi.kind}
+                      onChange={(e) =>
+                        setSeedUi((s) => ({ ...s, kind: e.target.value as SeedKind }))
+                      }
+                    >
+                      <option value="random">random (Erdős-Rényi)</option>
+                      <option value="ring">ring lattice</option>
+                      <option value="small_world">small-world (Watts-Strogatz)</option>
+                      <option value="layered">layered feed-forward</option>
+                    </select>
+                  </label>
+
+                  {(seedUi.kind === "random" ||
+                    seedUi.kind === "ring" ||
+                    seedUi.kind === "small_world") && (
+                    <label className="seed-row">
+                      <span className="mono">n (neurons)</span>
+                      <input
+                        type="number"
+                        min={2}
+                        value={seedUi.n}
+                        onChange={(e) =>
+                          setSeedUi((s) => ({ ...s, n: Number(e.target.value) }))
+                        }
+                      />
+                    </label>
+                  )}
+
+                  {seedUi.kind === "random" && (
+                    <label className="seed-row">
+                      <span className="mono">p (edge prob)</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        value={seedUi.p}
+                        onChange={(e) =>
+                          setSeedUi((s) => ({ ...s, p: Number(e.target.value) }))
+                        }
+                      />
+                    </label>
+                  )}
+
+                  {(seedUi.kind === "ring" || seedUi.kind === "small_world") && (
+                    <label className="seed-row">
+                      <span className="mono">k (neighbors each side)</span>
+                      <input
+                        type="number"
+                        min={1}
+                        value={seedUi.k}
+                        onChange={(e) =>
+                          setSeedUi((s) => ({ ...s, k: Number(e.target.value) }))
+                        }
+                      />
+                    </label>
+                  )}
+
+                  {seedUi.kind === "small_world" && (
+                    <label className="seed-row">
+                      <span className="mono">p_rewire</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        value={seedUi.pRewire}
+                        onChange={(e) =>
+                          setSeedUi((s) => ({ ...s, pRewire: Number(e.target.value) }))
+                        }
+                      />
+                    </label>
+                  )}
+
+                  {seedUi.kind === "layered" && (
+                    <label className="seed-row">
+                      <span className="mono">layers (csv)</span>
+                      <input
+                        type="text"
+                        value={seedUi.layers}
+                        onChange={(e) =>
+                          setSeedUi((s) => ({ ...s, layers: e.target.value }))
+                        }
+                      />
+                    </label>
+                  )}
+
+                  <label className="seed-row">
+                    <span className="mono">prng seed</span>
+                    <input
+                      type="number"
+                      value={seedUi.seedValue}
+                      onChange={(e) =>
+                        setSeedUi((s) => ({ ...s, seedValue: Number(e.target.value) }))
+                      }
+                    />
+                  </label>
+                </div>
+              </details>
             )}
 
             <div className="start-form">
