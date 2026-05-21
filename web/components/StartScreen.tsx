@@ -1,20 +1,32 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ingestVault } from "@/lib/cortex-api";
 import {
+  configureCortex,
+  CortexTypeBody,
+  ingestVault,
+} from "@/lib/cortex-api";
+import {
+  CortexTypeSlug,
+  HhConfigOverrides,
   initCortexFolder,
   inspectCortexFolder,
   isTauriRuntime,
   pickDirectory,
 } from "@/lib/desktop";
 
-export type NetworkOrigin = "demo" | "knowledge-graph" | "fresh";
+/**
+ * Demo networks predate any cortex_type field; the union keeps them
+ * inhabitable without changing the storage schema for existing users.
+ */
+export type NetworkOrigin = "demo" | CortexTypeSlug;
 
 export type NetworkRecord = {
   id: string;
   name: string;
   origin: NetworkOrigin;
+  cortexType: CortexTypeSlug;
+  hhConfig?: HhConfigOverrides | null;
   folderPath: string;
   hasMetadata: boolean;
   createdAt: string;
@@ -33,6 +45,7 @@ const DEMO_NETWORK: NetworkRecord = {
   id: "placeholder-network",
   name: "Placeholder Network",
   origin: "demo",
+  cortexType: "lif",
   folderPath: "local demo environment",
   hasMetadata: false,
   createdAt: "2026-05-14T00:00:00.000Z",
@@ -40,17 +53,62 @@ const DEMO_NETWORK: NetworkRecord = {
   nodeEstimate: 140,
 };
 
+/**
+ * Card metadata for the cortex-type selector. Order is intentional —
+ * KG first because it's the existing primary flow, LIF second as the
+ * cheap fresh option, HH last as the new biophysical pick.
+ */
+const CORTEX_TYPE_CARDS: ReadonlyArray<{
+  slug: CortexTypeSlug;
+  title: string;
+  blurb: string;
+}> = [
+  {
+    slug: "knowledge-graph",
+    title: "Knowledge Graph",
+    blurb:
+      "Ingest an Obsidian-style folder. Notes become nodes; links become edges. Runs LIF neurons over the imported topology.",
+  },
+  {
+    slug: "lif",
+    title: "LIF Network",
+    blurb:
+      "Fresh spiking network using leaky integrate-and-fire neurons. Cheap to scale; the substrate shipped since M0.",
+  },
+  {
+    slug: "hh",
+    title: "Hodgkin-Huxley Network",
+    blurb:
+      "Biophysical neurons with ion-channel dynamics. Richer spike patterns and adaptation; higher per-tick cost.",
+  },
+];
+
 function readNetworks(): NetworkRecord[] {
   if (typeof window === "undefined") return [DEMO_NETWORK];
 
   try {
     const parsed = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "[]");
     if (Array.isArray(parsed) && parsed.length > 0) {
-      return parsed.map((item) => ({
-        ...item,
-        folderPath: item.folderPath ?? item.environmentPath ?? item.knowledgeGraphPath,
-        hasMetadata: Boolean(item.hasMetadata),
-      }));
+      return parsed.map((item) => {
+        // Migrate legacy records: `origin: "fresh"` is the M0 name for
+        // what's now `lif`; KG/demo carry over unchanged. We also derive
+        // `cortexType` for older records that don't have it, so the
+        // viz layer never has to special-case "no cortex type set".
+        const legacyOrigin = item.origin;
+        const origin: NetworkOrigin =
+          legacyOrigin === "fresh" ? "lif" : legacyOrigin;
+        const cortexType: CortexTypeSlug =
+          item.cortexType ??
+          (origin === "demo" ? "lif" : (origin as CortexTypeSlug));
+        return {
+          ...item,
+          origin,
+          cortexType,
+          hhConfig: item.hhConfig ?? null,
+          folderPath: item.folderPath ?? item.environmentPath ?? item.knowledgeGraphPath,
+          hasMetadata: Boolean(item.hasMetadata),
+        };
+      });
     }
   } catch {
     // Fall through to the demo network; corrupt local shell state is non-fatal.
@@ -74,11 +132,40 @@ function nameFromPath(path: string, fallback: string): string {
   return parts.at(-1) || fallback;
 }
 
+function cortexTypeBody(
+  cortexType: CortexTypeSlug,
+  hhConfig?: HhConfigOverrides | null,
+): CortexTypeBody {
+  if (cortexType === "hh") {
+    return hhConfig ? { kind: "hh", config: hhConfig } : { kind: "hh" };
+  }
+  return { kind: cortexType };
+}
+
+/**
+ * Tell the running core to switch its engine to `cortexType`. Failure
+ * is logged but non-fatal — the network record still persists locally
+ * so the user can retry once core is running.
+ */
+async function pushCortexTypeToCore(
+  cortexType: CortexTypeSlug,
+  hhConfig?: HhConfigOverrides | null,
+): Promise<boolean> {
+  try {
+    await configureCortex(cortexTypeBody(cortexType, hhConfig));
+    return true;
+  } catch (err) {
+    console.warn("configureCortex failed", err);
+    return false;
+  }
+}
+
 export function StartScreen({ onOpen }: Props) {
   const [networks, setNetworks] = useState<NetworkRecord[]>([DEMO_NETWORK]);
-  const [mode, setMode] = useState<"existing" | "knowledge-graph" | "fresh">("existing");
+  const [cortexType, setCortexType] = useState<CortexTypeSlug>("knowledge-graph");
+  const [hhIntegrator, setHhIntegrator] = useState<"euler" | "rk4">("euler");
   const [folderPath, setFolderPath] = useState("");
-  const [status, setStatus] = useState("Select the folder where this cortex lives.");
+  const [status, setStatus] = useState("Pick a cortex type, then choose the folder where it lives.");
   const [pending, setPending] = useState(false);
 
   useEffect(() => {
@@ -87,11 +174,17 @@ export function StartScreen({ onOpen }: Props) {
 
   const canCreate = useMemo(() => {
     if (pending) return false;
-    if (mode === "knowledge-graph" || mode === "fresh") return folderPath.trim();
-    return false;
-  }, [folderPath, mode, pending]);
+    return Boolean(folderPath.trim());
+  }, [folderPath, pending]);
 
-  function persistAndOpen(network: NetworkRecord) {
+  async function persistAndOpen(network: NetworkRecord) {
+    // Re-seed core's engine to the opened network's cortex type before
+    // we hand the UI off. Persists locally either way — the visualizer
+    // tolerates "engine offline" but it shouldn't ever quietly run on
+    // the wrong neuron kind.
+    if (network.origin !== "demo") {
+      await pushCortexTypeToCore(network.cortexType, network.hhConfig ?? null);
+    }
     const updated = [
       { ...network, lastOpenedAt: new Date().toISOString() },
       ...networks.filter((item) => item.id !== network.id),
@@ -117,33 +210,39 @@ export function StartScreen({ onOpen }: Props) {
       const info = await inspectCortexFolder(selected);
       if (info) {
         existing.hasMetadata = info.has_cortex;
+        if (info.metadata?.cortex_type) {
+          existing.cortexType = info.metadata.cortex_type as CortexTypeSlug;
+          existing.origin = existing.cortexType;
+        }
       }
-      persistAndOpen(existing);
+      await persistAndOpen(existing);
       return;
     }
 
     const info = await inspectCortexFolder(selected);
-    if (info?.has_cortex) {
-      persistAndOpen({
-        id: info.metadata?.id ?? `existing-${Date.now()}`,
-        name: info.metadata?.name ?? `${nameFromPath(selected, "Existing")} Cortex`,
-        origin: (info.metadata?.source_kind === "fresh" ? "fresh" : "knowledge-graph"),
+    if (info?.has_cortex && info.metadata) {
+      const detected = (info.metadata.cortex_type as CortexTypeSlug) ?? "lif";
+      await persistAndOpen({
+        id: info.metadata.id ?? `existing-${Date.now()}`,
+        name: info.metadata.name ?? `${nameFromPath(selected, "Existing")} Cortex`,
+        origin: detected,
+        cortexType: detected,
+        hhConfig: info.metadata.hh_config ?? null,
         folderPath: selected,
         hasMetadata: true,
-        createdAt: info.metadata?.created_at ?? new Date().toISOString(),
+        createdAt: info.metadata.created_at ?? new Date().toISOString(),
         lastOpenedAt: new Date().toISOString(),
       });
       return;
     }
 
     setFolderPath(selected);
-    setMode("knowledge-graph");
     if (info) {
-      setStatus("No .cortex/ metadata found. Initialize this folder to make it a cortex.");
+      setStatus("No .cortex/ metadata found. Pick a cortex type and initialize.");
     } else if (!isTauriRuntime()) {
-      setStatus("Folder selected. Initialize from folder or start fresh.");
+      setStatus("Folder selected. Pick a cortex type and initialize.");
     } else {
-      setStatus("Folder selected. Couldn't inspect — initialize to create .cortex/.");
+      setStatus("Folder selected. Couldn't inspect — pick a type and initialize.");
     }
   }
 
@@ -152,14 +251,17 @@ export function StartScreen({ onOpen }: Props) {
 
     setPending(true);
     const now = new Date().toISOString();
-    const origin: NetworkOrigin = mode === "knowledge-graph" ? "knowledge-graph" : "fresh";
+    const hhConfig: HhConfigOverrides | null =
+      cortexType === "hh" ? { integrator: hhIntegrator } : null;
     const network: NetworkRecord = {
-      id: `${origin}-${Date.now()}`,
+      id: `${cortexType}-${Date.now()}`,
       name:
-        origin === "knowledge-graph"
+        cortexType === "knowledge-graph"
           ? `${nameFromPath(folderPath, "Knowledge Graph")} Cortex`
           : `${nameFromPath(folderPath, "Untitled")} Cortex`,
-      origin,
+      origin: cortexType,
+      cortexType,
+      hhConfig,
       folderPath: folderPath.trim(),
       hasMetadata: false,
       createdAt: now,
@@ -167,36 +269,52 @@ export function StartScreen({ onOpen }: Props) {
     };
 
     try {
-      if (origin === "knowledge-graph") {
-        setStatus("Initializing neural network from folder contents...");
+      // 1. Reconfigure the engine first. If this fails the network
+      //    still persists locally (core may be starting), but we surface
+      //    the state to the user so they know the visualizer might run
+      //    on the previous network's neuron kind until core is reached.
+      const engineReady = await pushCortexTypeToCore(cortexType, hhConfig);
+      if (!engineReady) {
+        setStatus("Engine reconfigure failed — will retry on open.");
+      }
+
+      // 2. KG networks ingest the vault into the engine. LIF/HH stay
+      //    empty so the user can stimulate manually or build topology.
+      if (cortexType === "knowledge-graph") {
+        setStatus("Ingesting folder contents into the neural graph...");
         const summary = await ingestVault(network.folderPath);
         network.nodeEstimate = summary.total_nodes;
         network.edgeEstimate = summary.total_edges;
         setStatus(`Created ${summary.total_nodes} nodes and ${summary.total_edges} edges.`);
+      } else if (cortexType === "hh") {
+        setStatus(`Initializing fresh Hodgkin-Huxley cortex (${hhIntegrator.toUpperCase()})...`);
       } else {
-        setStatus("Initializing fresh cortex in selected folder...");
+        setStatus("Initializing fresh LIF cortex...");
       }
 
-      // Always write the .cortex/ folder so subsequent opens recognize
-      // this directory as a Cortex network. For "fresh", this is the
-      // entire initialization. For "knowledge-graph", it sits next to
-      // the now-ingested SNN.
-      const info = await initCortexFolder(network.folderPath, network.name, origin);
+      // 3. Write .cortex/ — durable provenance for future opens.
+      const info = await initCortexFolder(
+        network.folderPath,
+        network.name,
+        cortexType,
+        hhConfig,
+      );
       if (info?.has_cortex) {
         network.hasMetadata = true;
         network.id = info.metadata?.id ?? network.id;
+        const where = info.metadata?.cortex_type ?? cortexType;
         setStatus(
-          origin === "knowledge-graph"
-            ? `Neural network initialized · ${network.nodeEstimate ?? 0} nodes · .cortex/ written`
-            : "Fresh cortex initialized · .cortex/ written"
+          cortexType === "knowledge-graph"
+            ? `Neural network initialized · ${network.nodeEstimate ?? 0} nodes · .cortex/ written (${where})`
+            : `Fresh ${where.toUpperCase()} cortex initialized · .cortex/ written`,
         );
       }
 
-      persistAndOpen(network);
+      await persistAndOpen(network);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      setStatus(`Network shell created; ingest is waiting for core: ${message}`);
-      persistAndOpen(network);
+      setStatus(`Network shell created; core call failed: ${message}`);
+      await persistAndOpen(network);
     } finally {
       setPending(false);
     }
@@ -224,10 +342,10 @@ export function StartScreen({ onOpen }: Props) {
                 <button
                   key={network.id}
                   className="network-card"
-                  onClick={() => persistAndOpen(network)}
+                  onClick={() => { void persistAndOpen(network); }}
                 >
                   <div className="network-card-top mono">
-                    <span>{network.origin.replace("-", " ")}</span>
+                    <span>{network.cortexType.replace("-", " ")}</span>
                     <span>{network.nodeEstimate ?? 0} nodes</span>
                   </div>
                   <div className="network-card-name">{network.name}</div>
@@ -241,45 +359,64 @@ export function StartScreen({ onOpen }: Props) {
           </section>
 
           <section className="start-create">
-            <div className="start-tabs" role="tablist" aria-label="Network creation mode">
-              <button
-                className={mode === "knowledge-graph" ? "active" : ""}
-                onClick={() => setMode("knowledge-graph")}
-                type="button"
-              >
-                Initialize from folder
-              </button>
-              <button
-                className={mode === "fresh" ? "active" : ""}
-                onClick={() => setMode("fresh")}
-                type="button"
-              >
-                Fresh
-              </button>
+            <div className="start-section-hd mono">new network — pick a cortex type</div>
+
+            <div className="cortex-type-grid" role="radiogroup" aria-label="Cortex type">
+              {CORTEX_TYPE_CARDS.map((card) => (
+                <button
+                  key={card.slug}
+                  type="button"
+                  role="radio"
+                  aria-checked={cortexType === card.slug}
+                  className={`cortex-type-card ${cortexType === card.slug ? "active" : ""}`}
+                  onClick={() => setCortexType(card.slug)}
+                >
+                  <div className="cortex-type-title">{card.title}</div>
+                  <div className="cortex-type-blurb">{card.blurb}</div>
+                  <div className="cortex-type-slug mono">{card.slug}</div>
+                </button>
+              ))}
             </div>
 
+            {cortexType === "hh" && (
+              <div className="hh-config" role="radiogroup" aria-label="HH integrator">
+                <span className="mono">integrator</span>
+                <label>
+                  <input
+                    type="radio"
+                    name="hh-integrator"
+                    checked={hhIntegrator === "euler"}
+                    onChange={() => setHhIntegrator("euler")}
+                  />
+                  Euler (default; needs dt ≤ 0.01 ms)
+                </label>
+                <label>
+                  <input
+                    type="radio"
+                    name="hh-integrator"
+                    checked={hhIntegrator === "rk4"}
+                    onChange={() => setHhIntegrator("rk4")}
+                  />
+                  RK4 (stable to ~0.05 ms; ~4× cost)
+                </label>
+              </div>
+            )}
+
             <div className="start-form">
-              {mode === "knowledge-graph" && (
-                <label className="path-picker">
-                  <span className="mono">cortex folder</span>
-                  <div>
-                    <input value={folderPath} onChange={(e) => setFolderPath(e.target.value)} />
-                    <button type="button" onClick={chooseFolder}>Choose</button>
-                  </div>
-                </label>
-              )}
+              <label className="path-picker">
+                <span className="mono">cortex folder</span>
+                <div>
+                  <input value={folderPath} onChange={(e) => setFolderPath(e.target.value)} />
+                  <button type="button" onClick={chooseFolder}>Choose</button>
+                </div>
+              </label>
 
-              {mode === "fresh" && (
-                <label className="path-picker">
-                  <span className="mono">cortex folder</span>
-                  <div>
-                    <input value={folderPath} onChange={(e) => setFolderPath(e.target.value)} />
-                    <button type="button" onClick={chooseFolder}>Choose</button>
-                  </div>
-                </label>
-              )}
-
-              <button className="start-primary" type="button" disabled={!canCreate} onClick={createNetwork}>
+              <button
+                className="start-primary"
+                type="button"
+                disabled={!canCreate}
+                onClick={() => { void createNetwork(); }}
+              >
                 {pending ? "Creating..." : "Create and Open"}
               </button>
             </div>

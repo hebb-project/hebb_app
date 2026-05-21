@@ -141,6 +141,41 @@ export async function postChat(
   return unwrap(r);
 }
 
+/**
+ * Body shape for `POST /api/cortex` — mirrors the kebab-tagged
+ * `core::CortexType` enum. The Rust side wipes engine state on receipt
+ * and re-seeds with the requested neuron kind.
+ */
+export type CortexTypeBody =
+  | { kind: "knowledge-graph" }
+  | { kind: "lif" }
+  | { kind: "hh"; config?: { integrator?: "euler" | "rk4" } };
+
+export type CortexTypeStatus = CortexTypeBody;
+
+/**
+ * Switch the engine to a new cortex type. Destructive — the actor
+ * drops all in-memory neurons/synapses before re-seeding. Caller is
+ * expected to re-ingest topology afterward (or skip it for `hh`/`lif`
+ * fresh networks).
+ */
+export async function configureCortex(
+  body: CortexTypeBody,
+  base?: string,
+): Promise<{ cortex_type: string }> {
+  const r = await fetch(`${cortexHttpBase(base)}/api/cortex`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return unwrap(r);
+}
+
+export async function getCortexType(base?: string): Promise<CortexTypeStatus> {
+  const r = await fetch(`${cortexHttpBase(base)}/api/cortex`, { cache: "no-store" });
+  return unwrap(r);
+}
+
 export async function postStimulate(
   nodeId: string,
   current: number,
