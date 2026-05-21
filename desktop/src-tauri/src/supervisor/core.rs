@@ -1,9 +1,9 @@
 //! `core` launcher.
 //!
 //! Spawns the `cortex-core` axum server with the resolved
-//! `DATABASE_URL`, then probes `/health` until 200 or timeout. The
-//! launcher returns once the server is responding, so callers can
-//! treat "Ok(())" as "the WS endpoints are accepting connections."
+//! `DATABASE_URL`, then probes `/api/health` until 200 or timeout.
+//! The launcher returns once the server is responding, so callers
+//! can treat "Ok(())" as "the WS endpoints are accepting connections."
 //!
 //! Binary resolution today is dev-mode: look at the env var
 //! `CORTEX_CORE_BIN`, else walk to `../../core/target/{release,debug}/core`
@@ -18,7 +18,8 @@ use tokio::net::TcpStream;
 
 use super::process::{ManagedProcess, ProcessConfig, RestartPolicy};
 
-const DEFAULT_BIND: &str = "127.0.0.1:8080";
+// Must match DEFAULT_HTTP in web/lib/cortex-api.ts and default_ws_port in core/src/config.rs.
+const DEFAULT_BIND: &str = "127.0.0.1:7654";
 const HEALTH_TIMEOUT: Duration = Duration::from_secs(30);
 const HEALTH_INTERVAL: Duration = Duration::from_millis(500);
 
@@ -70,7 +71,7 @@ impl CoreLauncher {
     }
 }
 
-/// Probe `http://<bind>/health` until 200 OK or the deadline expires.
+/// Probe `http://<bind>/api/health` until 200 OK or the deadline expires.
 /// Uses raw HTTP/1.0 over `TcpStream` so we don't pull in a full HTTP
 /// client just for one health probe.
 pub async fn wait_for_health(bind: &str) -> anyhow::Result<()> {
@@ -80,7 +81,7 @@ pub async fn wait_for_health(bind: &str) -> anyhow::Result<()> {
         attempt += 1;
         if Instant::now() >= deadline {
             anyhow::bail!(
-                "core /health probe timed out after {:?} ({} attempts)",
+                "core /api/health probe timed out after {:?} ({} attempts)",
                 HEALTH_TIMEOUT,
                 attempt
             );
@@ -97,7 +98,7 @@ async fn probe_once(bind: &str) -> bool {
     let Ok(mut stream) = TcpStream::connect(bind).await else {
         return false;
     };
-    let req = "GET /health HTTP/1.0\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+    let req = "GET /api/health HTTP/1.0\r\nHost: localhost\r\nConnection: close\r\n\r\n";
     if stream.write_all(req.as_bytes()).await.is_err() {
         return false;
     }
@@ -114,7 +115,7 @@ fn parse_bind(bind: &str) -> (String, String) {
     if let Some((h, p)) = bind.rsplit_once(':') {
         (h.into(), p.into())
     } else {
-        (DEFAULT_BIND.split(':').next().unwrap().into(), "8080".into())
+        (DEFAULT_BIND.split(':').next().unwrap().into(), DEFAULT_BIND.rsplit(':').next().unwrap().into())
     }
 }
 
@@ -131,23 +132,28 @@ fn resolve_binary() -> anyhow::Result<PathBuf> {
     }
 
     // CARGO_MANIFEST_DIR is set at compile time to `desktop/src-tauri`.
-    // From there: ../../core/target/{release,debug}/core.
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let core_target = manifest_dir
+    // The repo is a Cargo workspace, so `cargo build -p core` lands the
+    // binary under the workspace `target/`, not `core/target/`. Check
+    // both so per-crate builds (legacy) and workspace builds both work.
+    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .ancestors()
         .nth(2)
-        .map(|p| p.join("core/target"))
-        .ok_or_else(|| anyhow::anyhow!("could not locate core/target from CARGO_MANIFEST_DIR"))?;
+        .map(PathBuf::from)
+        .ok_or_else(|| anyhow::anyhow!("could not locate repo root from CARGO_MANIFEST_DIR"))?;
 
     let bin_name = if cfg!(windows) { "core.exe" } else { "core" };
-    for profile in &["release", "debug"] {
-        let candidate = core_target.join(profile).join(bin_name);
-        if candidate.exists() {
-            return Ok(candidate);
+    let target_roots = [repo_root.join("target"), repo_root.join("core/target")];
+    for target_root in &target_roots {
+        for profile in &["release", "debug"] {
+            let candidate = target_root.join(profile).join(bin_name);
+            if candidate.exists() {
+                return Ok(candidate);
+            }
         }
     }
     anyhow::bail!(
-        "core binary not found under {}; run `task core:build` first, or set CORTEX_CORE_BIN",
-        core_target.display()
+        "core binary not found under {} or {}; run `task core:build` first, or set CORTEX_CORE_BIN",
+        target_roots[0].display(),
+        target_roots[1].display(),
     );
 }

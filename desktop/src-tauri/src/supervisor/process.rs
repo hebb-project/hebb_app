@@ -16,8 +16,8 @@ use std::process::Stdio;
 use std::sync::Arc;
 
 use serde::Serialize;
-use tokio::process::{Child, Command};
-use tokio::sync::Mutex;
+use tokio::process::Command;
+use tokio::sync::{oneshot, Mutex};
 
 /// What to do when the child exits.
 ///
@@ -65,7 +65,12 @@ pub struct ManagedProcess {
     pub name: String,
     cfg: ProcessConfig,
     state: Arc<Mutex<State>>,
-    child: Arc<Mutex<Option<Child>>>,
+    /// One-shot used to ask the exit-waiter task to kill the child.
+    /// `None` after the first `stop()` call or after the child exits.
+    /// The exit-waiter owns the `Child` for the duration of `wait()`,
+    /// so killing it from another task needs an out-of-band signal —
+    /// we can't share `&mut Child` across tasks.
+    kill_tx: Arc<Mutex<Option<oneshot::Sender<()>>>>,
 }
 
 impl ManagedProcess {
@@ -74,7 +79,7 @@ impl ManagedProcess {
             name: cfg.name.clone(),
             cfg,
             state: Arc::new(Mutex::new(State::Pending)),
-            child: Arc::new(Mutex::new(None)),
+            kill_tx: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -106,22 +111,27 @@ impl ManagedProcess {
             Self::forward("stderr", self.name.clone(), stderr);
         }
 
-        *self.child.lock().await = Some(child);
+        let (kill_tx, kill_rx) = oneshot::channel::<()>();
+        *self.kill_tx.lock().await = Some(kill_tx);
         *self.state.lock().await = State::Running { pid };
 
-        // Exit waiter — owns no `&self`, holds only Arcs.
+        // Exit waiter — owns the Child for the lifetime of the
+        // process. Either the child exits on its own, or stop() sends
+        // through the oneshot and we kill it.
         let state = self.state.clone();
-        let child_slot = self.child.clone();
+        let kill_slot = self.kill_tx.clone();
         let name = self.name.clone();
         tokio::spawn(async move {
-            // Pull the child out so wait() borrows mutably without
-            // holding the slot's lock for the whole wait duration.
-            let Some(mut child) = child_slot.lock().await.take() else {
-                return;
+            let result = tokio::select! {
+                biased;
+                _ = kill_rx => {
+                    let _ = child.kill().await;
+                    child.wait().await
+                }
+                r = child.wait() => r,
             };
-            let result = child.wait().await;
-            // Put a stopped marker back if nothing else has overwritten it.
-            *child_slot.lock().await = None;
+            // Drop the sender slot so further stop() calls are no-ops.
+            *kill_slot.lock().await = None;
             match result {
                 Ok(status) => {
                     let code = status.code();
@@ -138,13 +148,14 @@ impl ManagedProcess {
         Ok(())
     }
 
-    /// Best-effort terminate. Sends SIGKILL on Unix via `kill()`.
-    /// SIGTERM-then-grace-period is a follow-up.
+    /// Best-effort terminate. Signals the exit-waiter to kill the
+    /// child; the waiter then transitions state to `Stopped` once
+    /// `wait()` returns. Idempotent: a second call after exit is a
+    /// no-op because the sender slot is cleared by the waiter.
     pub async fn stop(&self) -> anyhow::Result<()> {
-        if let Some(mut child) = self.child.lock().await.take() {
-            let _ = child.kill().await;
+        if let Some(tx) = self.kill_tx.lock().await.take() {
+            let _ = tx.send(());
         }
-        *self.state.lock().await = State::Stopped { code: None };
         Ok(())
     }
 
