@@ -102,6 +102,7 @@ export default function Home() {
           </ErrorBoundary>
           <ErrorBoundary>
             <ConnectomeView
+              key={network.id}
               stateKey={stateKey}
               nodeCount={NODE_COUNT}
               palette={DEFAULT_PALETTE}

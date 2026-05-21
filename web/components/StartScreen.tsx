@@ -5,6 +5,7 @@ import {
   configureCortex,
   CortexTypeBody,
   ingestVault,
+  openCortexFolder,
 } from "@/lib/cortex-api";
 import {
   CortexTypeSlug,
@@ -178,12 +179,22 @@ export function StartScreen({ onOpen }: Props) {
   }, [folderPath, pending]);
 
   async function persistAndOpen(network: NetworkRecord) {
-    // Re-seed core's engine to the opened network's cortex type before
-    // we hand the UI off. Persists locally either way — the visualizer
-    // tolerates "engine offline" but it shouldn't ever quietly run on
-    // the wrong neuron kind.
+    // Non-demo networks split into two regimes today:
+    // - knowledge-graph: still DB-backed; configure + ingest path.
+    // - lif/hh: folder-backed; open the specific `.cortex/` root.
+    // We keep persisting locally even if core is offline so the shell
+    // doesn't lose the user's network list.
     if (network.origin !== "demo") {
-      await pushCortexTypeToCore(network.cortexType, network.hhConfig ?? null);
+      if (network.cortexType === "knowledge-graph") {
+        await pushCortexTypeToCore(network.cortexType, network.hhConfig ?? null);
+      } else {
+        try {
+          await openCortexFolder(network.folderPath);
+        } catch (err) {
+          console.warn("openCortexFolder failed; falling back to configure", err);
+          await pushCortexTypeToCore(network.cortexType, network.hhConfig ?? null);
+        }
+      }
     }
     const updated = [
       { ...network, lastOpenedAt: new Date().toISOString() },

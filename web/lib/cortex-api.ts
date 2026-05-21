@@ -216,6 +216,32 @@ export async function getCortexType(base?: string): Promise<CortexTypeStatus> {
   return unwrap(r);
 }
 
+export type OpenCortexResponse = {
+  folder: string;
+  cortex_type: string;
+  name: string;
+  n_nodes: number;
+  n_edges: number;
+  weights_loaded: number;
+};
+
+/**
+ * Hydrate core from a folder-backed `.cortex` network. Used for
+ * non-KG networks where the folder, not Postgres, is the structural
+ * source of truth.
+ */
+export async function openCortexFolder(
+  folder: string,
+  base?: string,
+): Promise<OpenCortexResponse> {
+  const r = await fetch(`${cortexHttpBase(base)}/api/cortex/open`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ folder }),
+  });
+  return unwrap(r);
+}
+
 export async function postStimulate(
   nodeId: string,
   current: number,
