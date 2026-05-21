@@ -102,6 +102,55 @@ export async function initCortexFolder(
   }
 }
 
+// ── Seed network generators ───────────────────────────────────────────
+//
+// Mirrors `desktop/src-tauri/src/cortex_seeds.rs`. The host-side command
+// runs `cortex_snn::seeds` against a `Cortex` opened on the freshly
+// initialized folder, so the user lands in the visualizer with a real
+// starter network rather than an empty graph.
+
+export type SeedKind = "random" | "ring" | "small_world" | "layered";
+
+export type SeedConfig = {
+  /** `[low, high]` for uniform-sampled init weights. Both in [0,1]; low ≤ high. */
+  weight_range?: [number, number];
+  /** Synaptic delay in ms (uniform across the seed). */
+  delay_ms?: number;
+  /** PRNG seed — pinning it makes the network reproducible. */
+  seed?: number;
+};
+
+export type SeedSpec =
+  | { kind: "random"; n: number; p: number; config?: SeedConfig }
+  | { kind: "ring"; n: number; k: number; config?: SeedConfig }
+  | { kind: "small_world"; n: number; k: number; p_rewire: number; config?: SeedConfig }
+  | { kind: "layered"; layers: number[]; config?: SeedConfig };
+
+export type SeedSummary = {
+  added_nodes: number;
+  added_edges: number;
+  cortex_type: CortexTypeSlug;
+};
+
+/**
+ * Populate a freshly-initialized .cortex/ folder with a generated
+ * network. Must be called *after* `initCortexFolder` (the metadata
+ * file is the validation gate for cortex type) and *before* the
+ * visualizer opens — the topology.json gets written atomically by
+ * the Rust side.
+ *
+ * Returns `null` outside the Tauri runtime; rejects from the Rust
+ * side bubble up as thrown errors so the caller can surface them in
+ * the status line.
+ */
+export async function seedCortexFolder(
+  path: string,
+  spec: SeedSpec,
+): Promise<SeedSummary | null> {
+  if (!isTauriRuntime()) return null;
+  return await invoke<SeedSummary>("seed_cortex_folder", { path, spec });
+}
+
 export async function onDesktopMenuAction(
   handler: (action: DesktopMenuAction) => void,
 ): Promise<() => void> {

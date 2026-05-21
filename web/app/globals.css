@@ -390,6 +390,47 @@ html, body {
   cursor: pointer;
 }
 
+.seed-config {
+  padding: 8px 18px 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+.seed-config summary {
+  cursor: pointer;
+  color: var(--muted-2);
+  font-size: 10px;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  padding: 6px 0;
+}
+.seed-config-body {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  padding-top: 8px;
+}
+.seed-row {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  align-items: center;
+  gap: 10px;
+}
+.seed-row span {
+  color: var(--muted-2);
+  font-size: 10px;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+.seed-row input,
+.seed-row select {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--fg);
+  padding: 4px 8px;
+  font-size: 12px;
+  font-family: inherit;
+}
+
 .panel {
   background: var(--panel);
   display: flex;
