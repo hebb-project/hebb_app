@@ -308,6 +308,11 @@ tasks:
     cmds:
       - uv run python experiments/scripts/snn_smoke.py
 
+  py:cortex-smoke:
+    desc: 'Smoke-test the `cortex_snn.Cortex` folder-handle binding (PR B2).'
+    cmds:
+      - uv run python experiments/scripts/cortex_smoke.py
+
   py:repl:
     desc: Open a Python REPL with the project on path
     cmds:
