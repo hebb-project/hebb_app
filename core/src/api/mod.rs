@@ -4,6 +4,7 @@ pub mod chat;
 pub mod cortex;
 pub mod graph;
 pub mod health;
+pub mod params;
 pub mod search;
 pub mod stimulate;
 pub mod state;
@@ -13,7 +14,7 @@ pub mod ws;
 
 pub use state::AppState;
 
-use axum::routing::{get, post, delete};
+use axum::routing::{get, patch, post, delete};
 use axum::Router;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
@@ -37,6 +38,16 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/cortex", get(cortex::get_current).post(cortex::post_configure))
         .route("/api/cortex/open", post(cortex::post_open))
         .route("/api/cortex/folder", get(cortex::get_folder))
+        // Parameter introspection — the surface the agent harness drives.
+        // `/api/nodes` is the live-engine view (vs `/api/graph/nodes`
+        // which is the Postgres view); names diverge intentionally so
+        // they can't be confused.
+        .route("/api/nodes", get(params::list_nodes))
+        .route("/api/nodes/params", get(params::get_all_params))
+        .route(
+            "/api/nodes/:id/params",
+            get(params::get_node_params).patch(params::set_node_param),
+        )
         .route("/api/vault/ingest", post(vault::post_ingest))
         .route("/api/graph/weights", get(weights::get_weights_snapshot))
         .route("/ws/spikes", get(ws::ws_spikes))

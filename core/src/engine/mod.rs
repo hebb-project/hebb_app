@@ -78,6 +78,27 @@ pub enum EngineCommand {
     /// `None` means the engine is running on transient state (a bare
     /// `Configure` was used, no folder ever opened).
     GetFolder(oneshot::Sender<Option<PathBuf>>),
+    /// List all currently-loaded neuron IDs. Drives `GET /api/nodes`.
+    ListNeurons(oneshot::Sender<Vec<Uuid>>),
+    /// Get the introspectable params for a neuron. `None` if the
+    /// neuron isn't in the engine.
+    GetNodeParams {
+        node_id: Uuid,
+        reply: oneshot::Sender<Option<serde_json::Value>>,
+    },
+    /// Bulk-fetch every neuron's params keyed by ID. Drives the
+    /// dump endpoint used by the agent harness as a one-shot
+    /// "what's in this network right now" call.
+    GetAllNodeParams(oneshot::Sender<Vec<(Uuid, serde_json::Value)>>),
+    /// Mutate one parameter on one neuron. Returns the new full
+    /// param set on success, the substrate's ParamError text on
+    /// failure (validation, type, range, unknown key).
+    SetNodeParam {
+        node_id: Uuid,
+        key: String,
+        value: serde_json::Value,
+        reply: oneshot::Sender<Result<serde_json::Value, String>>,
+    },
 }
 
 /// Returned to a caller of `Open`. Lets the REST handler render a
@@ -178,6 +199,47 @@ impl SimHandle {
         self.cmd_tx.send(EngineCommand::GetFolder(tx)).await
             .map_err(|_| "engine offline")?;
         rx.await.map_err(|_| "engine dropped reply")
+    }
+
+    pub async fn list_neurons(&self) -> Result<Vec<Uuid>, &'static str> {
+        let (tx, rx) = oneshot::channel();
+        self.cmd_tx.send(EngineCommand::ListNeurons(tx)).await
+            .map_err(|_| "engine offline")?;
+        rx.await.map_err(|_| "engine dropped reply")
+    }
+
+    pub async fn get_node_params(&self, node_id: Uuid)
+        -> Result<Option<serde_json::Value>, &'static str>
+    {
+        let (tx, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(EngineCommand::GetNodeParams { node_id, reply: tx })
+            .await
+            .map_err(|_| "engine offline")?;
+        rx.await.map_err(|_| "engine dropped reply")
+    }
+
+    pub async fn get_all_node_params(&self)
+        -> Result<Vec<(Uuid, serde_json::Value)>, &'static str>
+    {
+        let (tx, rx) = oneshot::channel();
+        self.cmd_tx.send(EngineCommand::GetAllNodeParams(tx)).await
+            .map_err(|_| "engine offline")?;
+        rx.await.map_err(|_| "engine dropped reply")
+    }
+
+    pub async fn set_node_param(
+        &self,
+        node_id: Uuid,
+        key: String,
+        value: serde_json::Value,
+    ) -> Result<serde_json::Value, String> {
+        let (tx, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(EngineCommand::SetNodeParam { node_id, key, value, reply: tx })
+            .await
+            .map_err(|_| "engine offline".to_string())?;
+        rx.await.map_err(|_| "engine dropped reply".to_string())?
     }
 }
 
@@ -301,6 +363,21 @@ pub fn spawn_engine(tick_hz: u32) -> (SimHandle, tokio::task::JoinHandle<()>) {
                         }
                         EngineCommand::GetFolder(reply) => {
                             let _ = reply.send(current_folder.clone());
+                        }
+                        EngineCommand::ListNeurons(reply) => {
+                            let _ = reply.send(engine.list_neurons());
+                        }
+                        EngineCommand::GetNodeParams { node_id, reply } => {
+                            let _ = reply.send(engine.neuron_params(node_id));
+                        }
+                        EngineCommand::GetAllNodeParams(reply) => {
+                            let _ = reply.send(engine.all_neuron_params());
+                        }
+                        EngineCommand::SetNodeParam { node_id, key, value, reply } => {
+                            let result = engine
+                                .set_neuron_param(node_id, &key, &value)
+                                .map_err(|e| e.to_string());
+                            let _ = reply.send(result);
                         }
                     }
                 }
