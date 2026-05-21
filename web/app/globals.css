@@ -261,27 +261,6 @@ html, body {
   flex-direction: column;
   min-width: 0;
 }
-.start-tabs {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  border-bottom: 1px solid var(--border-2);
-  background: var(--panel-2);
-}
-.start-tabs button {
-  min-height: 44px;
-  border: 0;
-  border-right: 1px solid var(--border-2);
-  background: transparent;
-  color: var(--muted);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-}
-.start-tabs button:last-child { border-right: 0; }
-.start-tabs button.active {
-  color: var(--cyan);
-  background: rgba(125,249,255,0.055);
-}
 .start-form {
   padding: 18px;
   display: flex;
@@ -342,6 +321,73 @@ html, body {
   border-color: var(--border);
   color: var(--muted-2);
   cursor: not-allowed;
+}
+
+.cortex-type-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  padding: 14px 18px 0;
+}
+@media (min-width: 720px) {
+  .cortex-type-grid { grid-template-columns: 1fr 1fr 1fr; }
+}
+.cortex-type-card {
+  text-align: left;
+  border: 1px solid var(--border-2);
+  background: var(--panel-2);
+  color: var(--fg);
+  border-radius: 4px;
+  padding: 12px 12px 10px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 110px;
+  transition: border-color 80ms linear, background 80ms linear;
+}
+.cortex-type-card:hover { border-color: rgba(125,249,255,0.38); }
+.cortex-type-card.active {
+  border-color: var(--cyan);
+  background: rgba(125,249,255,0.06);
+}
+.cortex-type-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+}
+.cortex-type-blurb {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--muted);
+  flex: 1 1 auto;
+}
+.cortex-type-slug {
+  font-size: 10px;
+  color: var(--muted-2);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.hh-config {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  padding: 12px 18px 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+.hh-config span {
+  color: var(--muted-2);
+  font-size: 10px;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+.hh-config label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
 }
 
 .panel {
