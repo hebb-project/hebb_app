@@ -69,8 +69,9 @@ export type VaultIngestSummary = {
   total_edges: number;
 };
 
+// Must match DEFAULT_BIND in desktop/src-tauri/src/supervisor/core.rs and default_ws_port in core/src/config.rs.
 const DEFAULT_HTTP =
-  process.env.NEXT_PUBLIC_CORTEX_HTTP ?? "http://127.0.0.1:8080";
+  process.env.NEXT_PUBLIC_CORTEX_HTTP ?? "http://127.0.0.1:7654";
 
 export function cortexHttpBase(override?: string): string {
   return override?.replace(/\/$/, "") ?? DEFAULT_HTTP;
