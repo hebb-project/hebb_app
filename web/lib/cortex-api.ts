@@ -230,14 +230,18 @@ export type OpenCortexResponse = {
  * non-KG networks where the folder, not Postgres, is the structural
  * source of truth.
  */
+function cortexDataFolder(root: string): string {
+  return `${root.replace(/[\\/]+$/, "")}/.cortex`;
+}
+
 export async function openCortexFolder(
-  folder: string,
+  rootFolder: string,
   base?: string,
 ): Promise<OpenCortexResponse> {
   const r = await fetch(`${cortexHttpBase(base)}/api/cortex/open`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ folder }),
+    body: JSON.stringify({ folder: cortexDataFolder(rootFolder) }),
   });
   return unwrap(r);
 }
