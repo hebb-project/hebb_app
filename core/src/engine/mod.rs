@@ -47,14 +47,23 @@ pub struct EngineSnapshot {
 
 pub enum EngineCommand {
     AddNode(Uuid),
-    AddEdge { edge_id: Uuid, pre: Uuid, post: Uuid, weight: f32 },
+    AddEdge {
+        edge_id: Uuid,
+        pre: Uuid,
+        post: Uuid,
+        weight: f32,
+    },
     IngestBatch {
         nodes: Vec<Uuid>,
         /// (edge_id, pre_id, post_id, initial_weight)
         edges: Vec<(Uuid, Uuid, Uuid, f32)>,
         reply: oneshot::Sender<()>,
     },
-    Stimulate { node_id: Uuid, current: f32, duration_ms: f32 },
+    Stimulate {
+        node_id: Uuid,
+        current: f32,
+        duration_ms: f32,
+    },
     Snapshot(oneshot::Sender<EngineSnapshot>),
     /// One-shot weight snapshot: returns Vec<(edge_id, weight)>.
     WeightSnapshot(oneshot::Sender<Vec<(Uuid, f32)>>),
@@ -63,7 +72,10 @@ pub enum EngineCommand {
     /// without ambiguous input-current units, so reconfigure is a reset.
     /// Reply fires after the swap is in effect; callers should re-ingest
     /// topology afterward.
-    Configure { cortex_type: CortexType, reply: oneshot::Sender<()> },
+    Configure {
+        cortex_type: CortexType,
+        reply: oneshot::Sender<()>,
+    },
     /// Return the currently-active cortex type (for `GET /api/cortex`).
     GetType(oneshot::Sender<CortexType>),
     /// Open a `.cortex/` folder and hydrate the engine from its
@@ -81,6 +93,9 @@ pub enum EngineCommand {
     GetFolder(oneshot::Sender<Option<PathBuf>>),
     /// List all currently-loaded neuron IDs. Drives `GET /api/nodes`.
     ListNeurons(oneshot::Sender<Vec<Uuid>>),
+    /// List all currently-loaded synapse edge IDs. Drives
+    /// `GET /api/synapses`.
+    ListSynapses(oneshot::Sender<Vec<Uuid>>),
     /// Get the introspectable params for a neuron. `None` if the
     /// neuron isn't in the engine.
     GetNodeParams {
@@ -96,6 +111,21 @@ pub enum EngineCommand {
     /// failure (validation, type, range, unknown key).
     SetNodeParam {
         node_id: Uuid,
+        key: String,
+        value: serde_json::Value,
+        reply: oneshot::Sender<Result<serde_json::Value, String>>,
+    },
+    /// Get the introspectable params for a synapse. `None` if the
+    /// edge isn't in the engine.
+    GetSynapseParams {
+        edge_id: Uuid,
+        reply: oneshot::Sender<Option<serde_json::Value>>,
+    },
+    /// Bulk-fetch every synapse's params keyed by stable edge ID.
+    GetAllSynapseParams(oneshot::Sender<Vec<(Uuid, serde_json::Value)>>),
+    /// Mutate one parameter on one synapse.
+    SetSynapseParam {
+        edge_id: Uuid,
         key: String,
         value: serde_json::Value,
         reply: oneshot::Sender<Result<serde_json::Value, String>>,
@@ -176,14 +206,27 @@ pub struct OpenSummary {
 
 impl SimHandle {
     pub async fn add_node(&self, id: Uuid) -> Result<(), &'static str> {
-        self.cmd_tx.send(EngineCommand::AddNode(id)).await
+        self.cmd_tx
+            .send(EngineCommand::AddNode(id))
+            .await
             .map_err(|_| "engine offline")
     }
 
-    pub async fn add_edge(&self, edge_id: Uuid, pre: Uuid, post: Uuid, weight: f32)
-        -> Result<(), &'static str>
-    {
-        self.cmd_tx.send(EngineCommand::AddEdge { edge_id, pre, post, weight }).await
+    pub async fn add_edge(
+        &self,
+        edge_id: Uuid,
+        pre: Uuid,
+        post: Uuid,
+        weight: f32,
+    ) -> Result<(), &'static str> {
+        self.cmd_tx
+            .send(EngineCommand::AddEdge {
+                edge_id,
+                pre,
+                post,
+                weight,
+            })
+            .await
             .map_err(|_| "engine offline")
     }
 
@@ -194,31 +237,46 @@ impl SimHandle {
     ) -> Result<(), &'static str> {
         let (tx, rx) = oneshot::channel();
         self.cmd_tx
-            .send(EngineCommand::IngestBatch { nodes, edges, reply: tx })
+            .send(EngineCommand::IngestBatch {
+                nodes,
+                edges,
+                reply: tx,
+            })
             .await
             .map_err(|_| "engine offline")?;
         rx.await.map_err(|_| "engine dropped reply")
     }
 
-    pub async fn stimulate(&self, node_id: Uuid, current: f32, duration_ms: f32)
-        -> Result<(), &'static str>
-    {
+    pub async fn stimulate(
+        &self,
+        node_id: Uuid,
+        current: f32,
+        duration_ms: f32,
+    ) -> Result<(), &'static str> {
         self.cmd_tx
-            .send(EngineCommand::Stimulate { node_id, current, duration_ms })
+            .send(EngineCommand::Stimulate {
+                node_id,
+                current,
+                duration_ms,
+            })
             .await
             .map_err(|_| "engine offline")
     }
 
     pub async fn snapshot(&self) -> Result<EngineSnapshot, &'static str> {
         let (tx, rx) = oneshot::channel();
-        self.cmd_tx.send(EngineCommand::Snapshot(tx)).await
+        self.cmd_tx
+            .send(EngineCommand::Snapshot(tx))
+            .await
             .map_err(|_| "engine offline")?;
         rx.await.map_err(|_| "engine dropped reply")
     }
 
     pub async fn weight_snapshot(&self) -> Result<Vec<(Uuid, f32)>, &'static str> {
         let (tx, rx) = oneshot::channel();
-        self.cmd_tx.send(EngineCommand::WeightSnapshot(tx)).await
+        self.cmd_tx
+            .send(EngineCommand::WeightSnapshot(tx))
+            .await
             .map_err(|_| "engine offline")?;
         rx.await.map_err(|_| "engine dropped reply")
     }
@@ -230,7 +288,10 @@ impl SimHandle {
     pub async fn configure(&self, cortex_type: CortexType) -> Result<(), &'static str> {
         let (tx, rx) = oneshot::channel();
         self.cmd_tx
-            .send(EngineCommand::Configure { cortex_type, reply: tx })
+            .send(EngineCommand::Configure {
+                cortex_type,
+                reply: tx,
+            })
             .await
             .map_err(|_| "engine offline")?;
         rx.await.map_err(|_| "engine dropped reply")
@@ -238,7 +299,9 @@ impl SimHandle {
 
     pub async fn cortex_type(&self) -> Result<CortexType, &'static str> {
         let (tx, rx) = oneshot::channel();
-        self.cmd_tx.send(EngineCommand::GetType(tx)).await
+        self.cmd_tx
+            .send(EngineCommand::GetType(tx))
+            .await
             .map_err(|_| "engine offline")?;
         rx.await.map_err(|_| "engine dropped reply")
     }
@@ -257,21 +320,35 @@ impl SimHandle {
 
     pub async fn current_folder(&self) -> Result<Option<PathBuf>, &'static str> {
         let (tx, rx) = oneshot::channel();
-        self.cmd_tx.send(EngineCommand::GetFolder(tx)).await
+        self.cmd_tx
+            .send(EngineCommand::GetFolder(tx))
+            .await
             .map_err(|_| "engine offline")?;
         rx.await.map_err(|_| "engine dropped reply")
     }
 
     pub async fn list_neurons(&self) -> Result<Vec<Uuid>, &'static str> {
         let (tx, rx) = oneshot::channel();
-        self.cmd_tx.send(EngineCommand::ListNeurons(tx)).await
+        self.cmd_tx
+            .send(EngineCommand::ListNeurons(tx))
+            .await
             .map_err(|_| "engine offline")?;
         rx.await.map_err(|_| "engine dropped reply")
     }
 
-    pub async fn get_node_params(&self, node_id: Uuid)
-        -> Result<Option<serde_json::Value>, &'static str>
-    {
+    pub async fn list_synapses(&self) -> Result<Vec<Uuid>, &'static str> {
+        let (tx, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(EngineCommand::ListSynapses(tx))
+            .await
+            .map_err(|_| "engine offline")?;
+        rx.await.map_err(|_| "engine dropped reply")
+    }
+
+    pub async fn get_node_params(
+        &self,
+        node_id: Uuid,
+    ) -> Result<Option<serde_json::Value>, &'static str> {
         let (tx, rx) = oneshot::channel();
         self.cmd_tx
             .send(EngineCommand::GetNodeParams { node_id, reply: tx })
@@ -280,11 +357,13 @@ impl SimHandle {
         rx.await.map_err(|_| "engine dropped reply")
     }
 
-    pub async fn get_all_node_params(&self)
-        -> Result<Vec<(Uuid, serde_json::Value)>, &'static str>
-    {
+    pub async fn get_all_node_params(
+        &self,
+    ) -> Result<Vec<(Uuid, serde_json::Value)>, &'static str> {
         let (tx, rx) = oneshot::channel();
-        self.cmd_tx.send(EngineCommand::GetAllNodeParams(tx)).await
+        self.cmd_tx
+            .send(EngineCommand::GetAllNodeParams(tx))
+            .await
             .map_err(|_| "engine offline")?;
         rx.await.map_err(|_| "engine dropped reply")
     }
@@ -297,7 +376,54 @@ impl SimHandle {
     ) -> Result<serde_json::Value, String> {
         let (tx, rx) = oneshot::channel();
         self.cmd_tx
-            .send(EngineCommand::SetNodeParam { node_id, key, value, reply: tx })
+            .send(EngineCommand::SetNodeParam {
+                node_id,
+                key,
+                value,
+                reply: tx,
+            })
+            .await
+            .map_err(|_| "engine offline".to_string())?;
+        rx.await.map_err(|_| "engine dropped reply".to_string())?
+    }
+
+    pub async fn get_synapse_params(
+        &self,
+        edge_id: Uuid,
+    ) -> Result<Option<serde_json::Value>, &'static str> {
+        let (tx, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(EngineCommand::GetSynapseParams { edge_id, reply: tx })
+            .await
+            .map_err(|_| "engine offline")?;
+        rx.await.map_err(|_| "engine dropped reply")
+    }
+
+    pub async fn get_all_synapse_params(
+        &self,
+    ) -> Result<Vec<(Uuid, serde_json::Value)>, &'static str> {
+        let (tx, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(EngineCommand::GetAllSynapseParams(tx))
+            .await
+            .map_err(|_| "engine offline")?;
+        rx.await.map_err(|_| "engine dropped reply")
+    }
+
+    pub async fn set_synapse_param(
+        &self,
+        edge_id: Uuid,
+        key: String,
+        value: serde_json::Value,
+    ) -> Result<serde_json::Value, String> {
+        let (tx, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(EngineCommand::SetSynapseParam {
+                edge_id,
+                key,
+                value,
+                reply: tx,
+            })
             .await
             .map_err(|_| "engine offline".to_string())?;
         rx.await.map_err(|_| "engine dropped reply".to_string())?
@@ -313,7 +439,11 @@ impl SimHandle {
     ) -> Result<FolderNodeRecord, String> {
         let (tx, rx) = oneshot::channel();
         self.cmd_tx
-            .send(EngineCommand::AddNeuronToFolder { label, metadata, reply: tx })
+            .send(EngineCommand::AddNeuronToFolder {
+                label,
+                metadata,
+                reply: tx,
+            })
             .await
             .map_err(|_| "engine offline".to_string())?;
         rx.await.map_err(|_| "engine dropped reply".to_string())?
@@ -352,10 +482,7 @@ impl SimHandle {
         rx.await.map_err(|_| "engine dropped reply".to_string())?
     }
 
-    pub async fn remove_synapse_from_folder(
-        &self,
-        edge_id: Uuid,
-    ) -> Result<bool, String> {
+    pub async fn remove_synapse_from_folder(&self, edge_id: Uuid) -> Result<bool, String> {
         let (tx, rx) = oneshot::channel();
         self.cmd_tx
             .send(EngineCommand::RemoveSynapseFromFolder { edge_id, reply: tx })
@@ -508,6 +635,9 @@ pub fn spawn_engine(tick_hz: u32) -> (SimHandle, tokio::task::JoinHandle<()>) {
                         EngineCommand::ListNeurons(reply) => {
                             let _ = reply.send(engine.list_neurons());
                         }
+                        EngineCommand::ListSynapses(reply) => {
+                            let _ = reply.send(engine.list_synapses());
+                        }
                         EngineCommand::GetNodeParams { node_id, reply } => {
                             let _ = reply.send(engine.neuron_params(node_id));
                         }
@@ -517,6 +647,18 @@ pub fn spawn_engine(tick_hz: u32) -> (SimHandle, tokio::task::JoinHandle<()>) {
                         EngineCommand::SetNodeParam { node_id, key, value, reply } => {
                             let result = engine
                                 .set_neuron_param(node_id, &key, &value)
+                                .map_err(|e| e.to_string());
+                            let _ = reply.send(result);
+                        }
+                        EngineCommand::GetSynapseParams { edge_id, reply } => {
+                            let _ = reply.send(engine.synapse_params(edge_id));
+                        }
+                        EngineCommand::GetAllSynapseParams(reply) => {
+                            let _ = reply.send(engine.all_synapse_params());
+                        }
+                        EngineCommand::SetSynapseParam { edge_id, key, value, reply } => {
+                            let result = engine
+                                .set_synapse_param(edge_id, &key, &value)
                                 .map_err(|e| e.to_string());
                             let _ = reply.send(result);
                         }
@@ -682,8 +824,14 @@ mod tests {
     async fn engine_reconfigured_to_hh_emits_spikes() {
         let (handle, _join) = spawn_engine(10_000);
         let mut spikes = handle.spikes.subscribe();
-        let cfg = HhConfig { integrator: HhIntegrator::Rk4, ..HhConfig::default() };
-        handle.configure(CortexType::Hh { config: cfg }).await.unwrap();
+        let cfg = HhConfig {
+            integrator: HhIntegrator::Rk4,
+            ..HhConfig::default()
+        };
+        handle
+            .configure(CortexType::Hh { config: cfg })
+            .await
+            .unwrap();
 
         let id = Uuid::new_v4();
         handle.add_node(id).await.unwrap();
@@ -742,8 +890,18 @@ mod tests {
             },
         )
         .unwrap();
-        let a = cx.add_neuron(AddNeuron { label: "a".into(), ..Default::default() }).unwrap();
-        let b = cx.add_neuron(AddNeuron { label: "b".into(), ..Default::default() }).unwrap();
+        let a = cx
+            .add_neuron(AddNeuron {
+                label: "a".into(),
+                ..Default::default()
+            })
+            .unwrap();
+        let b = cx
+            .add_neuron(AddNeuron {
+                label: "b".into(),
+                ..Default::default()
+            })
+            .unwrap();
         cx.add_synapse(AddSynapse {
             id: None,
             pre: a,
@@ -757,7 +915,10 @@ mod tests {
         drop(cx);
 
         let (handle, _join) = spawn_engine(1000);
-        let summary = handle.open(root.clone()).await.expect("open should succeed");
+        let summary = handle
+            .open(root.clone())
+            .await
+            .expect("open should succeed");
         assert_eq!(summary.cortex_type, "hh");
         assert_eq!(summary.n_nodes, 2);
         assert_eq!(summary.n_edges, 1);
@@ -900,7 +1061,10 @@ mod tests {
         // Reopening A should still find the original neuron — the disk
         // file owns the persistence, not the engine.
         let a_summary = handle.open(root_a.clone()).await.unwrap();
-        assert_eq!(a_summary.n_nodes, 1, "folder A's neuron must still be on disk");
+        assert_eq!(
+            a_summary.n_nodes, 1,
+            "folder A's neuron must still be on disk"
+        );
 
         std::fs::remove_dir_all(&root_a).ok();
         std::fs::remove_dir_all(&root_b).ok();
@@ -1050,6 +1214,34 @@ mod tests {
         std::fs::remove_dir_all(&root).ok();
     }
 
+    #[tokio::test]
+    async fn engine_synapse_params_round_trip() {
+        let (handle, _join) = spawn_engine(1000);
+        let a = Uuid::new_v4();
+        let b = Uuid::new_v4();
+        let edge = Uuid::new_v4();
+
+        handle.add_edge(edge, a, b, 0.4).await.unwrap();
+
+        assert_eq!(handle.list_synapses().await.unwrap(), vec![edge]);
+        let params = handle.get_synapse_params(edge).await.unwrap().unwrap();
+        assert!((params["weight"].as_f64().unwrap() - 0.4).abs() < 1e-6);
+        assert_eq!(handle.get_all_synapse_params().await.unwrap().len(), 1);
+
+        let after = handle
+            .set_synapse_param(edge, "weight".into(), serde_json::json!(0.8))
+            .await
+            .unwrap();
+        assert!((after["weight"].as_f64().unwrap() - 0.8).abs() < 1e-6);
+        assert_eq!(handle.weight_snapshot().await.unwrap(), vec![(edge, 0.8)]);
+
+        let err = handle
+            .set_synapse_param(edge, "tau_plus".into(), serde_json::json!(0.0))
+            .await
+            .unwrap_err();
+        assert!(err.contains("out of range"), "got: {err}");
+    }
+
     /// Folder-write commands must refuse cleanly when no folder is open.
     #[tokio::test]
     async fn folder_write_without_open_returns_error() {
@@ -1117,15 +1309,15 @@ fn open_folder_into_engine(
     let topology: &TopologyFile = cortex.topology();
     let metadata = cortex.metadata();
 
-    let cortex_type = CortexType::from_slug_and_config(
-        &metadata.cortex_type,
-        metadata.hh_config.as_ref(),
-    )
-    .ok_or_else(|| format!(
-        "unknown cortex_type '{}' in folder {}",
-        metadata.cortex_type,
-        folder.display(),
-    ))?;
+    let cortex_type =
+        CortexType::from_slug_and_config(&metadata.cortex_type, metadata.hh_config.as_ref())
+            .ok_or_else(|| {
+                format!(
+                    "unknown cortex_type '{}' in folder {}",
+                    metadata.cortex_type,
+                    folder.display(),
+                )
+            })?;
     let kind = cortex_type.neuron_kind();
 
     let mut engine = SimEngine::new();
@@ -1141,9 +1333,7 @@ fn open_folder_into_engine(
                 "node {} requests neuron kind '{}' but engine currently \
                  runs a single kind '{}' per folder; \
                  mixed-kind networks are not supported in v1",
-                n.id,
-                effective.kind,
-                topology.defaults.neuron.kind,
+                n.id, effective.kind, topology.defaults.neuron.kind,
             ));
         }
         engine.add_neuron_with_kind(n.id, &kind);
@@ -1217,23 +1407,37 @@ fn spawn_weight_watcher(handle: SimHandle, tx: broadcast::Sender<WeightFrame>) {
 
             let send_full = since_full >= FORCE_FULL_EVERY;
             let deltas: Vec<WeightDelta> = if send_full {
-                snap.iter().map(|(id, w)| WeightDelta { edge_id: *id, w: *w }).collect()
+                snap.iter()
+                    .map(|(id, w)| WeightDelta {
+                        edge_id: *id,
+                        w: *w,
+                    })
+                    .collect()
             } else {
                 snap.iter()
                     .filter_map(|(id, w)| {
                         let prev = last.get(id).copied().unwrap_or(f32::NAN);
                         if !prev.is_finite() || (w - prev).abs() >= WEIGHT_EPSILON {
-                            Some(WeightDelta { edge_id: *id, w: *w })
-                        } else { None }
+                            Some(WeightDelta {
+                                edge_id: *id,
+                                w: *w,
+                            })
+                        } else {
+                            None
+                        }
                     })
                     .collect()
             };
 
             // Refresh `last` snapshot.
             last.clear();
-            for (id, w) in &snap { last.insert(*id, *w); }
+            for (id, w) in &snap {
+                last.insert(*id, *w);
+            }
 
-            if deltas.is_empty() && !send_full { continue; }
+            if deltas.is_empty() && !send_full {
+                continue;
+            }
 
             let frame = if send_full {
                 since_full = 0;
