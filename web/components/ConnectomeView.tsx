@@ -6,6 +6,8 @@ import {
   cortexHttpBase,
   cortexWeightsWsUrl,
   cortexWsUrl,
+  createGraphEdge,
+  createGraphNode,
   fetchGraph,
   postStimulate,
   type CortexEdge,
@@ -51,6 +53,14 @@ type Graph = {
 };
 
 type Spike = { from: number; to: number; t0: number; dur: number };
+
+type BuildDraft = {
+  fromId: string;
+  fromX: number;
+  fromY: number;
+  toX: number;
+  toY: number;
+} | null;
 
 type Colors = {
   bg: string;
@@ -199,8 +209,10 @@ function buildFromApi(
     const c = centers.get(n.node_type) ?? { cx: 0.5, cy: 0.5, r: 0.2 };
     const u1 = (rand() + rand()) * 0.5 - 0.5;
     const u2 = (rand() + rand()) * 0.5 - 0.5;
-    const x = (c.cx + u1 * c.r * 2) * w;
-    const y = (c.cy + u2 * c.r * 2) * h;
+    const metadataX = typeof n.metadata?.x === "number" ? n.metadata.x : null;
+    const metadataY = typeof n.metadata?.y === "number" ? n.metadata.y : null;
+    const x = metadataX ?? (c.cx + u1 * c.r * 2) * w;
+    const y = metadataY ?? (c.cy + u2 * c.r * 2) * h;
     const i = nodes.length;
     idToIndex.set(n.id, i);
     nodes.push({
@@ -286,6 +298,9 @@ export function ConnectomeView({
   );
   const [graphMeta, setGraphMeta] = useState<{ nodes: number; edges: number } | null>(null);
   const [hoverLabel, setHoverLabel] = useState<string | null>(null);
+  const [buildMode, setBuildMode] = useState(false);
+  const [buildStatus, setBuildStatus] = useState("click empty space to add · drag node to node to connect");
+  const [graphRevision, setGraphRevision] = useState(0);
 
   const colors = useMemo<Colors>(
     () => ({
@@ -308,11 +323,17 @@ export function ConnectomeView({
   const pendingSpikesRef = useRef<number[]>([]);
   // Pending edge weight updates keyed by edge_id; drained into the live graph.
   const pendingWeightsRef = useRef<Map<string, number>>(new Map());
+  const buildModeRef = useRef(buildMode);
+  const buildDraftRef = useRef<BuildDraft>(null);
 
   const propsRef = useRef({ stateKey, colors, wireframe, onSpikeRate, live });
   useEffect(() => {
     propsRef.current = { stateKey, colors, wireframe, onSpikeRate, live };
   });
+  useEffect(() => {
+    buildModeRef.current = buildMode;
+    if (!buildMode) buildDraftRef.current = null;
+  }, [buildMode]);
 
   // ── Trackpad zoom / pan ───────────────────────────────────────────
   useEffect(() => {
@@ -441,12 +462,20 @@ export function ConnectomeView({
         if (cancelled) return;
         apiGraphRef.current = g;
         setGraphMeta({ nodes: g.nodes.length, edges: g.edges.length });
+        setGraphRevision((v) => v + 1);
       } catch (err) {
         console.warn("[connectome] fetchGraph failed", err);
       }
     })();
     return () => { cancelled = true; };
   }, [live, cortexHttp]);
+
+  const refreshGraph = async () => {
+    const g = await fetchGraph(cortexHttp);
+    apiGraphRef.current = g;
+    setGraphMeta({ nodes: g.nodes.length, edges: g.edges.length });
+    setGraphRevision((v) => v + 1);
+  };
 
   // ── Live mode: spike WS subscription (with reconnect backoff). ────
   useEffect(() => {
@@ -535,6 +564,7 @@ export function ConnectomeView({
       downT = performance.now();
     };
     const onClick = async (e: MouseEvent) => {
+      if (buildModeRef.current) return;
       const dx = e.clientX - downX;
       const dy = e.clientY - downY;
       // Real click, not a drag.
@@ -564,6 +594,120 @@ export function ConnectomeView({
       wrap.removeEventListener("click", onClick);
     };
   }, [live, cortexHttp, clickStimulusCurrent, clickStimulusDurationMs]);
+
+  // ── Build mode: add nodes and connect edges using existing graph CRUD. ──
+  useEffect(() => {
+    if (!live) return;
+    const wrap = wrapRef.current;
+    const canvas = canvasRef.current;
+    if (!wrap || !canvas) return;
+
+    let downX = 0;
+    let downY = 0;
+    let downWorldX = 0;
+    let downWorldY = 0;
+    let downNodeId: string | null = null;
+    let moved = false;
+
+    const screenToWorld = (clientX: number, clientY: number) => {
+      const rect = canvas.getBoundingClientRect();
+      const sx = clientX - rect.left;
+      const sy = clientY - rect.top;
+      const v = viewRef.current;
+      return { x: (sx - v.tx) / v.scale, y: (sy - v.ty) / v.scale };
+    };
+
+    const hitNode = (x: number, y: number) =>
+      (canvas as unknown as { _hitTest?: (x: number, y: number) => string | null })._hitTest?.(x, y) ?? null;
+
+    const onPointerDown = (e: PointerEvent) => {
+      if (!buildModeRef.current || e.button !== 0) return;
+      const world = screenToWorld(e.clientX, e.clientY);
+      downX = e.clientX;
+      downY = e.clientY;
+      downWorldX = world.x;
+      downWorldY = world.y;
+      downNodeId = hitNode(world.x, world.y);
+      moved = false;
+      if (downNodeId) {
+        buildDraftRef.current = {
+          fromId: downNodeId,
+          fromX: world.x,
+          fromY: world.y,
+          toX: world.x,
+          toY: world.y,
+        };
+      }
+      wrap.setPointerCapture(e.pointerId);
+      e.preventDefault();
+      e.stopPropagation();
+    };
+
+    const onPointerMove = (e: PointerEvent) => {
+      if (!buildModeRef.current || !downNodeId || !buildDraftRef.current) return;
+      const world = screenToWorld(e.clientX, e.clientY);
+      moved ||= Math.hypot(e.clientX - downX, e.clientY - downY) > 4;
+      buildDraftRef.current = { ...buildDraftRef.current, toX: world.x, toY: world.y };
+    };
+
+    const onPointerUp = async (e: PointerEvent) => {
+      if (!buildModeRef.current) return;
+      try { wrap.releasePointerCapture(e.pointerId); } catch {}
+      const world = screenToWorld(e.clientX, e.clientY);
+      const upNodeId = hitNode(world.x, world.y);
+      const fromNodeId = downNodeId;
+      buildDraftRef.current = null;
+      e.preventDefault();
+      e.stopPropagation();
+
+      try {
+        if (fromNodeId && upNodeId && fromNodeId !== upNodeId) {
+          setBuildStatus("creating edge...");
+          await createGraphEdge({
+            pre_id: fromNodeId,
+            post_id: upNodeId,
+            weight: 0.5,
+            edge_type: "manual",
+            metadata: { created_by: "connectome-build-mode" },
+          }, cortexHttp);
+          await refreshGraph();
+          setBuildStatus("edge created · drag another connection");
+          return;
+        }
+
+        if (!fromNodeId && !upNodeId && !moved) {
+          const label = `manual-${(graphMeta?.nodes ?? 0) + 1}`;
+          setBuildStatus("creating neuron...");
+          await createGraphNode({
+            label,
+            node_type: "manual",
+            metadata: {
+              x: downWorldX,
+              y: downWorldY,
+              created_by: "connectome-build-mode",
+            },
+          }, cortexHttp);
+          await refreshGraph();
+          setBuildStatus(`created ${label} · drag from it to connect`);
+        }
+      } catch (err) {
+        console.warn("[connectome] build mode mutation failed", err);
+        const message = err instanceof Error ? err.message : String(err);
+        setBuildStatus(`build failed: ${message}`);
+      } finally {
+        downNodeId = null;
+      }
+    };
+
+    wrap.addEventListener("pointerdown", onPointerDown);
+    wrap.addEventListener("pointermove", onPointerMove);
+    wrap.addEventListener("pointerup", onPointerUp);
+    return () => {
+      wrap.removeEventListener("pointerdown", onPointerDown);
+      wrap.removeEventListener("pointermove", onPointerMove);
+      wrap.removeEventListener("pointerup", onPointerUp);
+    };
+  }, [live, cortexHttp, graphMeta?.nodes]);
 
   // ── Main animation loop ───────────────────────────────────────────
   useEffect(() => {
@@ -892,6 +1036,18 @@ export function ConnectomeView({
         }
       }
 
+      const draft = buildDraftRef.current;
+      if (draft) {
+        ctx.strokeStyle = "rgba(255,255,255,0.55)";
+        ctx.lineWidth = 1.2 / view.scale;
+        ctx.setLineDash([7 / view.scale, 7 / view.scale]);
+        ctx.beginPath();
+        ctx.moveTo(draft.fromX, draft.fromY);
+        ctx.lineTo(draft.toX, draft.toY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
       if (!wireframe) {
         for (const sp of state.spikes) {
           const p = Math.min(1, (now - sp.t0) / sp.dur);
@@ -999,7 +1155,7 @@ export function ConnectomeView({
       if (livePoll) clearInterval(livePoll);
       wrap.removeEventListener("mousemove", onMove);
     };
-  }, [nodeCount, live]);
+  }, [nodeCount, live, graphRevision]);
 
   const preset = STATE_PRESETS[stateKey];
   const overlayLabel = live
@@ -1007,6 +1163,7 @@ export function ConnectomeView({
       ? `live · ws://core/spikes · ${graphMeta?.nodes ?? "?"} nodes`
       : `live · connecting…`
     : "connectome · placeholder · awaiting ws://core/spikes";
+  const buildModeEnabled = live && buildMode;
 
   return (
     <main className="panel connectome">
@@ -1016,7 +1173,7 @@ export function ConnectomeView({
           style={{
             position: "absolute",
             inset: 0,
-            cursor: panning ? "grabbing" : live ? "crosshair" : "default",
+            cursor: panning ? "grabbing" : buildModeEnabled ? "copy" : live ? "crosshair" : "default",
             touchAction: "none",
             overscrollBehavior: "contain",
           }}
@@ -1030,6 +1187,11 @@ export function ConnectomeView({
           <div className="overlay-top">
             <div className="overlay-label mono">
               {overlayLabel}
+              {buildModeEnabled && (
+                <span style={{ marginLeft: 12, color: "rgba(125,249,255,0.9)" }}>
+                  build · {buildStatus}
+                </span>
+              )}
               {hoverLabel && (
                 <span style={{ marginLeft: 12, color: "rgba(255,255,255,0.7)" }}>
                   ▸ {hoverLabel}
@@ -1062,6 +1224,28 @@ export function ConnectomeView({
               <span className="zoom-sep" />
               <button className="zoom-btn" title="Hold space + drag, or middle-click to pan">pan</button>
               <button className="zoom-btn" onClick={resetView} title="Fit / reset view">fit</button>
+              {live && (
+                <>
+                  <span className="zoom-sep" />
+                  <button
+                    className="zoom-btn"
+                    onClick={() => {
+                      setBuildMode((value) => {
+                        const next = !value;
+                        setBuildStatus(
+                          next
+                            ? "click empty space to add · drag node to node to connect"
+                            : "build mode off",
+                        );
+                        return next;
+                      });
+                    }}
+                    title="Toggle interactive build mode"
+                  >
+                    {buildModeEnabled ? "build:on" : "build"}
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>

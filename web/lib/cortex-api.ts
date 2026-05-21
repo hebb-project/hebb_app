@@ -17,6 +17,22 @@ export type CortexEdge = {
   edge_type: string;
 };
 
+export type NewCortexNode = {
+  label: string;
+  node_type?: string;
+  source_file?: string | null;
+  model_blob_path?: string | null;
+  metadata?: Record<string, unknown>;
+};
+
+export type NewCortexEdge = {
+  pre_id: string;
+  post_id: string;
+  weight?: number;
+  edge_type?: string;
+  metadata?: Record<string, unknown>;
+};
+
 export type CortexSpikeEvent = { node_id: string; t_ms: number };
 export type CortexSpikeFrame = { v: number; t_ms: number; events: CortexSpikeEvent[] };
 
@@ -81,6 +97,30 @@ async function unwrap<T>(r: Response): Promise<T> {
 
 export async function fetchGraph(base?: string): Promise<{ nodes: CortexNode[]; edges: CortexEdge[] }> {
   const r = await fetch(`${cortexHttpBase(base)}/api/graph`, { cache: "no-store" });
+  return unwrap(r);
+}
+
+export async function createGraphNode(
+  node: NewCortexNode,
+  base?: string,
+): Promise<CortexNode> {
+  const r = await fetch(`${cortexHttpBase(base)}/api/graph/nodes`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(node),
+  });
+  return unwrap(r);
+}
+
+export async function createGraphEdge(
+  edge: NewCortexEdge,
+  base?: string,
+): Promise<CortexEdge> {
+  const r = await fetch(`${cortexHttpBase(base)}/api/graph/edges`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(edge),
+  });
   return unwrap(r);
 }
 
