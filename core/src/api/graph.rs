@@ -58,6 +58,30 @@ pub async fn create_node(
     State(s): State<AppState>,
     Json(new): Json<NewNode>,
 ) -> CoreResult<Json<serde_json::Value>> {
+    // When a `.cortex/` folder is open, structural edits must flow
+    // through the Cortex handle so topology.json is the source of
+    // truth — otherwise the desktop's build mode would mutate a single
+    // shared Postgres pile that every folder-backed network sees.
+    if let Some(_folder) = s
+        .engine
+        .current_folder()
+        .await
+        .map_err(|m| CoreError::EngineOffline(m.into()))?
+    {
+        let record = s
+            .engine
+            .add_neuron_to_folder(new.label.clone(), new.metadata.clone())
+            .await
+            .map_err(CoreError::BadRequest)?;
+        return Ok(ok(serde_json::json!({
+            "id": record.id,
+            "label": record.label,
+            "node_type": record.node_type,
+            "source_file": serde_json::Value::Null,
+            "metadata": record.metadata,
+        })));
+    }
+
     let engine = s.engine.clone();
     let row: NodeRow = run_blocking(&s.pool, move |conn| {
         Ok(diesel::insert_into(nodes::table)
@@ -73,6 +97,28 @@ pub async fn delete_node(
     State(s): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> CoreResult<Json<serde_json::Value>> {
+    if let Some(_folder) = s
+        .engine
+        .current_folder()
+        .await
+        .map_err(|m| CoreError::EngineOffline(m.into()))?
+    {
+        match s
+            .engine
+            .remove_neuron_from_folder(id)
+            .await
+            .map_err(CoreError::BadRequest)?
+        {
+            Some(summary) => {
+                return Ok(ok(serde_json::json!({
+                    "deleted": id,
+                    "cascaded_edges": summary.cascaded_edges,
+                })));
+            }
+            None => return Err(CoreError::NotFound(format!("node {id}"))),
+        }
+    }
+
     let n: usize = run_blocking(&s.pool, move |conn| {
         Ok(diesel::delete(nodes::table.find(id)).execute(conn)?)
     }).await?;
@@ -104,6 +150,27 @@ pub async fn create_edge(
     if new.pre_id == new.post_id {
         return Err(CoreError::BadRequest("self-loops are not allowed".into()));
     }
+
+    if let Some(_folder) = s
+        .engine
+        .current_folder()
+        .await
+        .map_err(|m| CoreError::EngineOffline(m.into()))?
+    {
+        let record = s
+            .engine
+            .add_synapse_to_folder(new.pre_id, new.post_id, new.weight, new.metadata.clone())
+            .await
+            .map_err(CoreError::BadRequest)?;
+        return Ok(ok(serde_json::json!({
+            "id": record.id,
+            "pre_id": record.pre_id,
+            "post_id": record.post_id,
+            "weight": record.weight,
+            "edge_type": record.edge_type,
+        })));
+    }
+
     let engine = s.engine.clone();
     let row: EdgeRow = run_blocking(&s.pool, move |conn| {
         Ok(diesel::insert_into(edges::table)
@@ -119,6 +186,23 @@ pub async fn delete_edge(
     State(s): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> CoreResult<Json<serde_json::Value>> {
+    if let Some(_folder) = s
+        .engine
+        .current_folder()
+        .await
+        .map_err(|m| CoreError::EngineOffline(m.into()))?
+    {
+        let removed = s
+            .engine
+            .remove_synapse_from_folder(id)
+            .await
+            .map_err(CoreError::BadRequest)?;
+        if !removed {
+            return Err(CoreError::NotFound(format!("edge {id}")));
+        }
+        return Ok(ok(serde_json::json!({ "deleted": id })));
+    }
+
     let n: usize = run_blocking(&s.pool, move |conn| {
         Ok(diesel::delete(edges::table.find(id)).execute(conn)?)
     }).await?;
