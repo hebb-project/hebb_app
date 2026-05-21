@@ -20,7 +20,7 @@ type Props = {
   /**
    * Optional explicit base URL. If unset, talks to the same Rust core
    * the rest of the UI uses (NEXT_PUBLIC_CORTEX_HTTP, default
-   * http://127.0.0.1:8080). The legacy Python bridge no longer
+   * http://127.0.0.1:7654). The legacy Python bridge no longer
    * participates by default — Rust-side /api/chat handles it.
    */
   coreBase?: string;

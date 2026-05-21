@@ -52,7 +52,8 @@ pub struct CoreConfig {
 
 fn default_model_store_path() -> PathBuf { PathBuf::from("./data/models") }
 fn default_ws_host() -> String { "127.0.0.1".to_string() }
-fn default_ws_port() -> u16 { 8080 }
+// Must match DEFAULT_BIND in desktop/src-tauri/src/supervisor/core.rs and DEFAULT_HTTP in web/lib/cortex-api.ts.
+fn default_ws_port() -> u16 { 7654 }
 fn default_vault_path() -> PathBuf { PathBuf::from("./tests/mock-knowledge-base") }
 fn default_cors_allow_origin() -> String { "*".to_string() }
 fn default_tick_hz() -> u32 { 200 }
