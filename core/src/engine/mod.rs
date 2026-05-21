@@ -753,6 +753,214 @@ mod tests {
         assert!(!err.is_empty(), "error should have a non-empty message");
     }
 
+    /// Round-trip: open a freshly-created folder, push a neuron through
+    /// the folder-write command, drop the engine, spawn a new engine,
+    /// open the same folder — the neuron must persist via topology.json
+    /// without any DB involvement.
+    #[tokio::test]
+    async fn folder_neuron_write_persists_across_engine_restart() {
+        use cortex_snn::format::topology::{NeuronSpec, SynapseSpec, TopologyDefaults};
+        use cortex_snn::CreateOptions;
+        use std::time::SystemTime;
+
+        let nanos = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("core-folder-write-persist-{nanos}"));
+        cortex_snn::Cortex::create(
+            &root,
+            CreateOptions {
+                name: "Persist".into(),
+                cortex_type: "lif".into(),
+                source_root: root.display().to_string(),
+                now_rfc3339: "2026-05-21T12:00:00Z".into(),
+                defaults: TopologyDefaults {
+                    neuron: NeuronSpec::lif(),
+                    synapse: SynapseSpec::stdp(),
+                },
+                hh_config: None,
+            },
+        )
+        .unwrap();
+
+        // Engine #1: open + add.
+        let (handle, _join) = spawn_engine(1000);
+        handle.open(root.clone()).await.unwrap();
+        let rec = handle
+            .add_neuron_to_folder(
+                "first-manual".to_string(),
+                serde_json::json!({ "x": 1.0, "y": 2.0 }),
+            )
+            .await
+            .unwrap();
+        // Drop the handle — actor's owned Cortex goes with it.
+        drop(handle);
+
+        // Engine #2: a brand-new actor opens the same folder and must
+        // see the persisted neuron.
+        let (handle2, _join2) = spawn_engine(1000);
+        let summary = handle2.open(root.clone()).await.unwrap();
+        assert_eq!(summary.n_nodes, 1, "neuron should survive restart on disk");
+        let neurons = handle2.list_neurons().await.unwrap();
+        assert!(
+            neurons.iter().any(|id| *id == rec.id),
+            "hydrated SimEngine should contain the persisted neuron"
+        );
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// Cross-network isolation: writes against folder A must not leak
+    /// into folder B. The actor switches Cortex handles atomically on
+    /// Open, so opening B after writing to A should show zero nodes
+    /// from A in B, and reopening A still shows the original write.
+    #[tokio::test]
+    async fn folder_writes_isolated_across_networks() {
+        use cortex_snn::format::topology::{NeuronSpec, SynapseSpec, TopologyDefaults};
+        use cortex_snn::CreateOptions;
+        use std::time::SystemTime;
+
+        let nanos = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root_a = std::env::temp_dir().join(format!("core-folder-isolation-a-{nanos}"));
+        let root_b = std::env::temp_dir().join(format!("core-folder-isolation-b-{nanos}"));
+        for r in [&root_a, &root_b] {
+            cortex_snn::Cortex::create(
+                r,
+                CreateOptions {
+                    name: r.file_name().unwrap().to_string_lossy().to_string(),
+                    cortex_type: "lif".into(),
+                    source_root: r.display().to_string(),
+                    now_rfc3339: "2026-05-21T12:00:00Z".into(),
+                    defaults: TopologyDefaults {
+                        neuron: NeuronSpec::lif(),
+                        synapse: SynapseSpec::stdp(),
+                    },
+                    hh_config: None,
+                },
+            )
+            .unwrap();
+        }
+
+        let (handle, _join) = spawn_engine(1000);
+
+        handle.open(root_a.clone()).await.unwrap();
+        let a_rec = handle
+            .add_neuron_to_folder("a-only".into(), serde_json::json!({}))
+            .await
+            .unwrap();
+
+        let b_summary = handle.open(root_b.clone()).await.unwrap();
+        assert_eq!(
+            b_summary.n_nodes, 0,
+            "folder B must not see folder A's neuron"
+        );
+        let b_neurons = handle.list_neurons().await.unwrap();
+        assert!(
+            b_neurons.iter().all(|id| *id != a_rec.id),
+            "SimEngine must be wiped on open-folder swap"
+        );
+
+        // Reopening A should still find the original neuron — the disk
+        // file owns the persistence, not the engine.
+        let a_summary = handle.open(root_a.clone()).await.unwrap();
+        assert_eq!(a_summary.n_nodes, 1, "folder A's neuron must still be on disk");
+
+        std::fs::remove_dir_all(&root_a).ok();
+        std::fs::remove_dir_all(&root_b).ok();
+    }
+
+    /// Synapse + remove path: add neuron, add synapse, remove neuron —
+    /// the cascade must drop the incident edge in both the topology
+    /// file and the live SimEngine, and a fresh open must reflect the
+    /// final state.
+    #[tokio::test]
+    async fn folder_synapse_and_cascade_round_trip() {
+        use cortex_snn::format::topology::{NeuronSpec, SynapseSpec, TopologyDefaults};
+        use cortex_snn::CreateOptions;
+        use std::time::SystemTime;
+
+        let nanos = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("core-folder-cascade-{nanos}"));
+        cortex_snn::Cortex::create(
+            &root,
+            CreateOptions {
+                name: "Cascade".into(),
+                cortex_type: "lif".into(),
+                source_root: root.display().to_string(),
+                now_rfc3339: "2026-05-21T12:00:00Z".into(),
+                defaults: TopologyDefaults {
+                    neuron: NeuronSpec::lif(),
+                    synapse: SynapseSpec::stdp(),
+                },
+                hh_config: None,
+            },
+        )
+        .unwrap();
+
+        let (handle, _join) = spawn_engine(1000);
+        handle.open(root.clone()).await.unwrap();
+        let a = handle
+            .add_neuron_to_folder("a".into(), serde_json::json!({}))
+            .await
+            .unwrap();
+        let b = handle
+            .add_neuron_to_folder("b".into(), serde_json::json!({}))
+            .await
+            .unwrap();
+        let edge = handle
+            .add_synapse_to_folder(a.id, b.id, 0.4, serde_json::json!({}))
+            .await
+            .unwrap();
+
+        // Sanity: synapse exists in both engine and disk before removal.
+        let snap = handle.snapshot().await.unwrap();
+        assert_eq!(snap.n_neurons, 2);
+        assert_eq!(snap.n_synapses, 1);
+
+        // Removing the pre-neuron must cascade the edge.
+        let removed = handle
+            .remove_neuron_from_folder(a.id)
+            .await
+            .unwrap()
+            .expect("neuron was present");
+        assert_eq!(removed.cascaded_edges, 1);
+
+        let snap2 = handle.snapshot().await.unwrap();
+        assert_eq!(snap2.n_neurons, 1, "removed neuron leaves only b");
+        assert_eq!(snap2.n_synapses, 0, "incident edge cascaded in engine");
+
+        // Reopen with a fresh engine and confirm disk matches.
+        drop(handle);
+        let (handle2, _join2) = spawn_engine(1000);
+        let summary = handle2.open(root.clone()).await.unwrap();
+        assert_eq!(summary.n_nodes, 1);
+        assert_eq!(summary.n_edges, 0);
+
+        // Removing the (already-cascaded) edge id now returns false.
+        let again = handle2.remove_synapse_from_folder(edge.id).await.unwrap();
+        assert!(!again);
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// Folder-write commands must refuse cleanly when no folder is open.
+    #[tokio::test]
+    async fn folder_write_without_open_returns_error() {
+        let (handle, _join) = spawn_engine(1000);
+        let err = handle
+            .add_neuron_to_folder("x".into(), serde_json::json!({}))
+            .await
+            .unwrap_err();
+        assert!(err.contains("no .cortex/ folder open"), "got: {err}");
+    }
+
     /// After a successful Open, a subsequent bare Configure should
     /// detach from the folder and reset `current_folder` to None.
     #[tokio::test]
