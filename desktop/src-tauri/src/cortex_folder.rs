@@ -40,6 +40,8 @@
 use std::path::{Path, PathBuf};
 
 use chrono::{SecondsFormat, Utc};
+use cortex_snn::format::topology::{NeuronSpec, SynapseSpec, TopologyDefaults};
+use cortex_snn::{Cortex, CreateOptions};
 use serde::{Deserialize, Serialize};
 use tokio::fs;
 use uuid::Uuid;
@@ -192,6 +194,21 @@ fn rfc3339_now() -> String {
     Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true)
 }
 
+fn defaults_for_cortex_type(
+    cortex_type: &str,
+    hh_config: Option<serde_json::Value>,
+) -> Result<TopologyDefaults, String> {
+    let neuron = match cortex_type {
+        "knowledge-graph" | "lif" => NeuronSpec::lif(),
+        "hh" => NeuronSpec::hh(hh_config),
+        other => return Err(format!("unknown cortex_type: {other:?}")),
+    };
+    Ok(TopologyDefaults {
+        neuron,
+        synapse: SynapseSpec::stdp(),
+    })
+}
+
 /// Resolve a user-supplied path to a canonical, existing directory.
 /// Centralizes the validation so both commands return identical errors
 /// for the same input shape.
@@ -256,14 +273,45 @@ pub async fn init_cortex_folder(
     }
 
     let cortex = cortex_dir(&root);
-    fs::create_dir_all(&cortex)
-        .await
-        .map_err(|e| format!("creating {}: {}", cortex.display(), e))?;
+    let meta_path = metadata_path(&root);
+    let now = rfc3339_now();
+
+    if !matches!(fs::metadata(&meta_path).await, Ok(m) if m.is_file()) {
+        let defaults = defaults_for_cortex_type(&cortex_type, hh_config.clone())?;
+        let create = CreateOptions {
+            name: name.clone(),
+            cortex_type: cortex_type.clone(),
+            source_root: root.to_string_lossy().to_string(),
+            now_rfc3339: now.clone(),
+            defaults,
+            hh_config: hh_config.clone(),
+        };
+        Cortex::create(&cortex, create)
+            .map_err(|e| format!("creating cortex folder at {}: {}", cortex.display(), e))?;
+    } else {
+        fs::create_dir_all(&cortex)
+            .await
+            .map_err(|e| format!("creating {}: {}", cortex.display(), e))?;
+
+        let existing = load_metadata(&root).await;
+        let metadata = CortexMetadata {
+            version: METADATA_VERSION,
+            id: existing.as_ref().map(|m| m.id).unwrap_or_else(Uuid::new_v4),
+            name,
+            cortex_type: cortex_type.clone(),
+            hh_config: hh_config.clone(),
+            source_kind: None,
+            source_root: root.to_string_lossy().to_string(),
+            created_at: existing.map(|m| m.created_at).unwrap_or_else(|| now.clone()),
+            updated_at: now.clone(),
+        };
+        write_metadata(&meta_path, &metadata).await?;
+        tracing::info!(path = %meta_path.display(), cortex_type = %metadata.cortex_type, "wrote cortex metadata");
+    }
 
     // Subdirs reserved for future weight + embedding caches. The
     // per-type weights/{slug}/ subdir is created eagerly so external
-    // tooling can assume the layout exists from day one. Failures are
-    // non-fatal — metadata is the only thing the desktop reads back.
+    // tooling can assume the layout exists from day one.
     for sub in ["weights", "embeddings"] {
         let p = cortex.join(sub);
         if let Err(e) = fs::create_dir_all(&p).await {
@@ -275,28 +323,11 @@ pub async fn init_cortex_folder(
         tracing::warn!(path = %typed_weights.display(), error = %e, "could not create typed weights subdir");
     }
 
-    let meta_path = metadata_path(&root);
-    let existing = load_metadata(&root).await;
-    let now = rfc3339_now();
-    let metadata = CortexMetadata {
-        version: METADATA_VERSION,
-        id: existing.as_ref().map(|m| m.id).unwrap_or_else(Uuid::new_v4),
-        name,
-        cortex_type,
-        hh_config,
-        source_kind: None,
-        source_root: root.to_string_lossy().to_string(),
-        created_at: existing.map(|m| m.created_at).unwrap_or_else(|| now.clone()),
-        updated_at: now,
-    };
-    write_metadata(&meta_path, &metadata).await?;
-    tracing::info!(path = %meta_path.display(), cortex_type = %metadata.cortex_type, "wrote cortex metadata");
-
     Ok(CortexFolderInfo {
         root: root.to_string_lossy().to_string(),
         cortex_path: cortex.to_string_lossy().to_string(),
         has_cortex: true,
-        metadata: Some(metadata),
+        metadata: load_metadata(&root).await,
     })
 }
 
@@ -337,6 +368,10 @@ mod tests {
         assert_eq!(m.cortex_type, "lif");
         assert_eq!(m.version, 2);
         assert!(m.source_kind.is_none());
+        assert!(
+            dir.join(".cortex").join("topology.json").is_file(),
+            "fresh init should create topology.json"
+        );
 
         let again = inspect_cortex_folder(p).await.expect("inspect");
         assert!(again.has_cortex);

@@ -69,8 +69,9 @@ export type VaultIngestSummary = {
   total_edges: number;
 };
 
+// Must match DEFAULT_BIND in desktop/src-tauri/src/supervisor/core.rs and default_ws_port in core/src/config.rs.
 const DEFAULT_HTTP =
-  process.env.NEXT_PUBLIC_CORTEX_HTTP ?? "http://127.0.0.1:8080";
+  process.env.NEXT_PUBLIC_CORTEX_HTTP ?? "http://127.0.0.1:7654";
 
 export function cortexHttpBase(override?: string): string {
   return override?.replace(/\/$/, "") ?? DEFAULT_HTTP;
@@ -213,6 +214,36 @@ export async function configureCortex(
 
 export async function getCortexType(base?: string): Promise<CortexTypeStatus> {
   const r = await fetch(`${cortexHttpBase(base)}/api/cortex`, { cache: "no-store" });
+  return unwrap(r);
+}
+
+export type OpenCortexResponse = {
+  folder: string;
+  cortex_type: string;
+  name: string;
+  n_nodes: number;
+  n_edges: number;
+  weights_loaded: number;
+};
+
+/**
+ * Hydrate core from a folder-backed `.cortex` network. Used for
+ * non-KG networks where the folder, not Postgres, is the structural
+ * source of truth.
+ */
+function cortexDataFolder(root: string): string {
+  return `${root.replace(/[\\/]+$/, "")}/.cortex`;
+}
+
+export async function openCortexFolder(
+  rootFolder: string,
+  base?: string,
+): Promise<OpenCortexResponse> {
+  const r = await fetch(`${cortexHttpBase(base)}/api/cortex/open`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ folder: cortexDataFolder(rootFolder) }),
+  });
   return unwrap(r);
 }
 

@@ -2,6 +2,7 @@
 
 use axum::extract::{Path, Query, State};
 use axum::Json;
+use cortex_snn::Cortex;
 use diesel::prelude::*;
 use serde::Deserialize;
 use uuid::Uuid;
@@ -134,6 +135,17 @@ pub async fn delete_edge(
 pub async fn get_full_graph(
     State(s): State<AppState>,
 ) -> CoreResult<Json<serde_json::Value>> {
+    if let Some(folder) = s
+        .engine
+        .current_folder()
+        .await
+        .map_err(|m| CoreError::EngineOffline(m.into()))?
+    {
+        if let Some(snapshot) = graph_from_open_folder(&folder)? {
+            return Ok(ok(snapshot));
+        }
+    }
+
     let (n, e): (Vec<NodeRow>, Vec<EdgeRow>) = run_blocking(&s.pool, |conn| {
         let n = nodes::table.select(NodeRow::as_select()).load(conn)?;
         let e = edges::table.select(EdgeRow::as_select()).load(conn)?;
@@ -152,4 +164,57 @@ fn strip_search_body(row: NodeRow) -> serde_json::Value {
         metadata.remove("body_text");
     }
     value
+}
+
+fn graph_from_open_folder(folder: &std::path::Path) -> CoreResult<Option<serde_json::Value>> {
+    let cortex = Cortex::open(folder)
+        .map_err(|e| CoreError::BadRequest(format!("opening {}: {}", folder.display(), e)))?;
+
+    // Knowledge-graph networks still render from Postgres today. The
+    // folder-backed snapshot path is for fresh LIF/HH families where
+    // topology now lives on disk.
+    if cortex.cortex_type() == "knowledge-graph" {
+        return Ok(None);
+    }
+
+    let topology = cortex.topology();
+    let nodes = topology
+        .nodes
+        .iter()
+        .map(|n| {
+            serde_json::json!({
+                "id": n.id,
+                "label": n.label,
+                "node_type": n
+                    .kind
+                    .as_ref()
+                    .map(|k| k.kind.clone())
+                    .unwrap_or_else(|| topology.defaults.neuron.kind.clone()),
+                "source_file": serde_json::Value::Null,
+                "metadata": n.metadata,
+            })
+        })
+        .collect::<Vec<_>>();
+    let edges = topology
+        .edges
+        .iter()
+        .map(|e| {
+            serde_json::json!({
+                "id": e.id,
+                "pre_id": e.pre,
+                "post_id": e.post,
+                "weight": e.init_weight,
+                "edge_type": e
+                    .kind
+                    .as_ref()
+                    .map(|k| k.kind.clone())
+                    .unwrap_or_else(|| topology.defaults.synapse.kind.clone()),
+            })
+        })
+        .collect::<Vec<_>>();
+
+    Ok(Some(serde_json::json!({
+        "nodes": nodes,
+        "edges": edges,
+    })))
 }

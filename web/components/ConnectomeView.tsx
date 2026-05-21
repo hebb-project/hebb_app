@@ -301,6 +301,7 @@ export function ConnectomeView({
   const [buildMode, setBuildMode] = useState(false);
   const [buildStatus, setBuildStatus] = useState("click empty space to add · drag node to node to connect");
   const [graphRevision, setGraphRevision] = useState(0);
+  const [fetchFailed, setFetchFailed] = useState(false);
 
   const colors = useMemo<Colors>(
     () => ({
@@ -452,21 +453,28 @@ export function ConnectomeView({
     setZoomPct(100);
   };
 
-  // ── Live mode: fetch the real graph once on mount ─────────────────
+  // ── Live mode: fetch graph, retry until core responds ───────────────
   useEffect(() => {
     if (!live) return;
     let cancelled = false;
-    (async () => {
+    let retryDelay = 1000;
+
+    const attempt = async () => {
       try {
         const g = await fetchGraph(cortexHttp);
         if (cancelled) return;
         apiGraphRef.current = g;
+        setFetchFailed(false);
         setGraphMeta({ nodes: g.nodes.length, edges: g.edges.length });
         setGraphRevision((v) => v + 1);
-      } catch (err) {
-        console.warn("[connectome] fetchGraph failed", err);
+      } catch {
+        if (cancelled) return;
+        setFetchFailed(true);
+        retryDelay = Math.min(retryDelay * 1.5, 8000);
+        setTimeout(attempt, retryDelay);
       }
-    })();
+    };
+    void attempt();
     return () => { cancelled = true; };
   }, [live, cortexHttp]);
 
@@ -1183,6 +1191,32 @@ export function ConnectomeView({
             style={{ display: "block", width: "100%", height: "100%" }}
           />
         </div>
+        {fetchFailed && live && (
+          <div
+            style={{
+              position: "absolute",
+              top: "50%",
+              left: "50%",
+              transform: "translate(-50%, -50%)",
+              background: "rgba(10,13,18,0.88)",
+              border: "1px solid rgba(255,93,143,0.4)",
+              borderRadius: 6,
+              padding: "14px 20px",
+              fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+              fontSize: 12,
+              color: "rgba(255,93,143,0.9)",
+              pointerEvents: "none",
+              zIndex: 10,
+              textAlign: "center",
+              lineHeight: 1.6,
+            }}
+          >
+            core unreachable · {cortexHttpBase(cortexHttp)}<br />
+            <span style={{ color: "rgba(125,249,255,0.5)" }}>
+              check that the desktop supervisor started · mock graph shown
+            </span>
+          </div>
+        )}
         <div className="connectome-overlay">
           <div className="overlay-top">
             <div className="overlay-label mono">
