@@ -128,6 +128,13 @@ pub enum EngineCommand {
         edge_id: Uuid,
         reply: oneshot::Sender<Result<bool, String>>,
     },
+    /// Snapshot the live weights and persist them to
+    /// `weights/{type}/latest.cwt` via the open `Cortex` handle.
+    /// Returns `Ok(None)` when no folder is open — the caller should
+    /// fall back to the Postgres path.
+    FlushWeightsToOpenFolder {
+        reply: oneshot::Sender<Result<Option<usize>, String>>,
+    },
 }
 
 /// Returned by `AddNeuronToFolder` — enough fields to render a
@@ -352,6 +359,18 @@ impl SimHandle {
         let (tx, rx) = oneshot::channel();
         self.cmd_tx
             .send(EngineCommand::RemoveSynapseFromFolder { edge_id, reply: tx })
+            .await
+            .map_err(|_| "engine offline".to_string())?;
+        rx.await.map_err(|_| "engine dropped reply".to_string())?
+    }
+
+    /// Persist the current weight set to the open `.cortex/` folder.
+    /// `Ok(Some(n))` means n edges were written; `Ok(None)` means no
+    /// folder is open and the caller should fall back to its DB path.
+    pub async fn flush_weights_to_open_folder(&self) -> Result<Option<usize>, String> {
+        let (tx, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(EngineCommand::FlushWeightsToOpenFolder { reply: tx })
             .await
             .map_err(|_| "engine offline".to_string())?;
         rx.await.map_err(|_| "engine dropped reply".to_string())?
@@ -603,6 +622,20 @@ pub fn spawn_engine(tick_hz: u32) -> (SimHandle, tokio::task::JoinHandle<()>) {
                                             Err(e) => Err(e.to_string()),
                                         }
                                     }
+                                }
+                            };
+                            let _ = reply.send(result);
+                        }
+                        EngineCommand::FlushWeightsToOpenFolder { reply } => {
+                            let result = match current_cortex.as_ref() {
+                                None => Ok(None),
+                                Some(cortex) => {
+                                    let snap = engine.weight_snapshot();
+                                    let n = snap.len();
+                                    cortex
+                                        .persist_weights(snap)
+                                        .map(|_| Some(n))
+                                        .map_err(|e| e.to_string())
                                 }
                             };
                             let _ = reply.send(result);
@@ -946,6 +979,73 @@ mod tests {
         // Removing the (already-cascaded) edge id now returns false.
         let again = handle2.remove_synapse_from_folder(edge.id).await.unwrap();
         assert!(!again);
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// Weight write-through: changing a synapse weight in SimEngine
+    /// then flushing should land in `weights/{type}/latest.cwt`.
+    /// `FlushWeightsToOpenFolder` reports `Ok(None)` when no folder is
+    /// open, signaling the persister to take its Postgres path.
+    #[tokio::test]
+    async fn folder_weight_flush_persists_to_disk_and_noops_without_folder() {
+        use cortex_snn::format::topology::{NeuronSpec, SynapseSpec, TopologyDefaults};
+        use cortex_snn::CreateOptions;
+        use std::time::SystemTime;
+
+        let nanos = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("core-folder-weight-flush-{nanos}"));
+        cortex_snn::Cortex::create(
+            &root,
+            CreateOptions {
+                name: "WeightFlush".into(),
+                cortex_type: "lif".into(),
+                source_root: root.display().to_string(),
+                now_rfc3339: "2026-05-21T12:00:00Z".into(),
+                defaults: TopologyDefaults {
+                    neuron: NeuronSpec::lif(),
+                    synapse: SynapseSpec::stdp(),
+                },
+                hh_config: None,
+            },
+        )
+        .unwrap();
+
+        let (handle, _join) = spawn_engine(1000);
+
+        // Pre-open: flush must report Ok(None) so the persister falls
+        // back to its Postgres path.
+        assert_eq!(handle.flush_weights_to_open_folder().await.unwrap(), None);
+
+        handle.open(root.clone()).await.unwrap();
+        let a = handle
+            .add_neuron_to_folder("a".into(), serde_json::json!({}))
+            .await
+            .unwrap();
+        let b = handle
+            .add_neuron_to_folder("b".into(), serde_json::json!({}))
+            .await
+            .unwrap();
+        let edge = handle
+            .add_synapse_to_folder(a.id, b.id, 0.42, serde_json::json!({}))
+            .await
+            .unwrap();
+
+        // First flush — must succeed and report one written record.
+        let written = handle.flush_weights_to_open_folder().await.unwrap();
+        assert_eq!(written, Some(1));
+
+        // Reopen the folder via cortex_snn directly and confirm the
+        // weight landed on disk with the same id and value.
+        drop(handle);
+        let cx = cortex_snn::Cortex::open(&root).unwrap();
+        let weights = cx.load_weights().unwrap();
+        assert_eq!(weights.len(), 1);
+        assert_eq!(weights[0].0, edge.id);
+        assert!((weights[0].1 - 0.42).abs() < 1e-6);
 
         std::fs::remove_dir_all(&root).ok();
     }

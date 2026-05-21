@@ -10,6 +10,14 @@
 //! closes the loop: in-memory weights → `edges.weight` → loaded back on
 //! the next boot via `SimEngine::add_edge(..., weight)`. No additional
 //! startup wiring needed.
+//!
+//! Folder mode: when a `.cortex/` folder is open, the persister asks
+//! the engine actor to write a full weight snapshot to
+//! `weights/{type}/latest.cwt` instead of issuing per-edge UPDATEs
+//! against Postgres. The .cwt writer is atomic (write-temp + fsync +
+//! rename) so a crash mid-flush leaves the previous good snapshot in
+//! place. The Postgres path remains the source of truth for KG
+//! networks and for any engine running without an open folder.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -47,6 +55,26 @@ pub fn spawn_weight_persister(
 
         loop {
             interval.tick().await;
+
+            // Folder mode: write a full snapshot to disk via the engine
+            // actor. The actor owns the Cortex handle so we don't race
+            // with API-driven topology edits. We skip the per-edge diff
+            // because .cwt is rewritten in full anyway — the writer is
+            // already atomic and the file size at M0 scale is small.
+            match handle.flush_weights_to_open_folder().await {
+                Ok(Some(n)) => {
+                    tracing::debug!(written = n, "weight persister flushed to .cortex/");
+                    continue;
+                }
+                Ok(None) => {
+                    // Fall through to the Postgres path below.
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "weight persister: folder flush failed, will retry");
+                    continue;
+                }
+            }
+
             let snap = match handle.weight_snapshot().await {
                 Ok(s) => s,
                 Err(e) => {
