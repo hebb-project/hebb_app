@@ -28,7 +28,20 @@ type GraphNode = {
   neighbors: number[];
 };
 
-type GraphEdge = { a: number; b: number; len: number; longRange?: boolean; id?: string; weight: number };
+type GraphEdge = {
+  a: number;
+  b: number;
+  len: number;
+  longRange?: boolean;
+  id?: string;
+  weight: number;
+  // Transient STDP-update pulse. `pulse` decays toward 0 each frame;
+  // `pulseDir` is +1 for potentiation (Δw > 0) and -1 for depression so
+  // the renderer can tint the moment of plasticity differently from the
+  // settled steady-state weight.
+  pulse: number;
+  pulseDir: number;
+};
 
 type Graph = {
   nodes: GraphNode[];
@@ -118,7 +131,7 @@ function buildConnectome(nodeCount: number, w: number, h: number, seed = 7): Gra
       const key = i < j ? `${i}-${j}` : `${j}-${i}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      edges.push({ a: i, b: j, len: Math.sqrt(dists[t].d), weight: 0.5 });
+      edges.push({ a: i, b: j, len: Math.sqrt(dists[t].d), weight: 0.5, pulse: 0, pulseDir: 0 });
       nodes[i].neighbors.push(j);
       nodes[j].neighbors.push(i);
     }
@@ -134,7 +147,7 @@ function buildConnectome(nodeCount: number, w: number, h: number, seed = 7): Gra
     seen.add(key);
     const dx = nodes[i].x - nodes[j].x;
     const dy = nodes[i].y - nodes[j].y;
-    edges.push({ a: i, b: j, len: Math.sqrt(dx * dx + dy * dy), longRange: true, weight: 0.5 });
+    edges.push({ a: i, b: j, len: Math.sqrt(dx * dx + dy * dy), longRange: true, weight: 0.5, pulse: 0, pulseDir: 0 });
     nodes[i].neighbors.push(j);
     nodes[j].neighbors.push(i);
   }
@@ -221,6 +234,8 @@ function buildFromApi(
       longRange: e.weight > 0.75,
       id: e.id,
       weight: e.weight,
+      pulse: 0,
+      pulseDir: 0,
     });
     edgeIdToIndex.set(e.id, idx);
     nodes[a].neighbors.push(b);
@@ -683,12 +698,25 @@ export function ConnectomeView({
             if (idx !== undefined) spawnSpikeFromNode(idx, now);
           }
         }
-        // Apply pending weight updates to the live graph.
+        // Apply pending weight updates to the live graph. We compare
+        // against the previous weight to set a transient pulse — that
+        // way the user catches the *moment* of STDP, not just the
+        // settled steady-state thickness.
         if (g && pendingWeightsRef.current.size) {
           const m = pendingWeightsRef.current;
           for (const [edgeId, w] of m) {
             const ei = g.edgeIdToIndex.get(edgeId);
-            if (ei !== undefined) g.edges[ei].weight = w;
+            if (ei !== undefined) {
+              const edge = g.edges[ei];
+              const delta = w - edge.weight;
+              edge.weight = w;
+              // Threshold on |Δw| so floating-point noise doesn't flash
+              // the whole graph. Magnitude scales pulse intensity (cap 1).
+              if (Math.abs(delta) > 0.005) {
+                edge.pulse = Math.min(1, Math.abs(delta) * 8);
+                edge.pulseDir = delta > 0 ? 1 : -1;
+              }
+            }
           }
           m.clear();
         }
@@ -721,6 +749,18 @@ export function ConnectomeView({
         n.hotFire *= Math.pow(0.0005, dt / 1000);
         if (n.fire < 0.001) n.fire = 0;
         if (n.hotFire < 0.001) n.hotFire = 0;
+      }
+      // STDP pulses decay on a faster constant (~250ms half-life) — the
+      // intent is a brief flash, not a sustained highlight.
+      const pulseFalloff = Math.pow(0.06, dt / 1000);
+      for (const e of g.edges) {
+        if (e.pulse > 0) {
+          e.pulse *= pulseFalloff;
+          if (e.pulse < 0.01) {
+            e.pulse = 0;
+            e.pulseDir = 0;
+          }
+        }
       }
 
       const next: Spike[] = [];
@@ -808,8 +848,10 @@ export function ConnectomeView({
           const act = Math.max(a.fire, b.fire);
           // weight ∈ [0,1]; centered at 0.5 → 1.0 thickness, scaling linearly
           // 0 → 0.25× thickness, 1 → 2.5× thickness. Activity layered on top.
+          // STDP pulse momentarily fattens the edge so the moment of
+          // plasticity reads as a brief bloom on top of the steady weight.
           const w = e.weight;
-          const thickness = (0.25 + w * 2.25) / view.scale;
+          const thickness = (0.25 + w * 2.25 + e.pulse * 0.9) / view.scale;
           ctx.lineWidth = thickness;
           if (e.longRange) {
             // Slightly pink-tinged for high-weight long-range edges so the
@@ -832,6 +874,21 @@ export function ConnectomeView({
           ctx.moveTo(a.x, a.y);
           ctx.lineTo(b.x, b.y);
           ctx.stroke();
+          // STDP pulse overlay: green-ish for potentiation, amber for
+          // depression. Drawn over the steady-state stroke so the
+          // settled weight color reads through as the pulse fades.
+          if (e.pulse > 0) {
+            const alpha = Math.min(0.9, e.pulse);
+            ctx.strokeStyle =
+              e.pulseDir > 0
+                ? `rgba(125,255,180,${alpha})`
+                : `rgba(255,170,90,${alpha})`;
+            ctx.lineWidth = (0.7 + e.pulse * 1.6) / view.scale;
+            ctx.beginPath();
+            ctx.moveTo(a.x, a.y);
+            ctx.lineTo(b.x, b.y);
+            ctx.stroke();
+          }
         }
       }
 
