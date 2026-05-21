@@ -28,6 +28,7 @@ use uuid::Uuid;
 use crate::cortex_type::CortexType;
 use cortex_snn::format::topology::TopologyFile;
 use cortex_snn::NeuronKind;
+use cortex_snn::{AddNeuron as CortexAddNeuron, AddSynapse as CortexAddSynapse, Cortex};
 
 /// Public, cloneable handle to the running engine task. Embed in axum's
 /// `AppState`.
@@ -99,6 +100,59 @@ pub enum EngineCommand {
         value: serde_json::Value,
         reply: oneshot::Sender<Result<serde_json::Value, String>>,
     },
+    /// Add a neuron to the currently-open `.cortex/` folder and to the
+    /// in-memory SimEngine. Fails if no folder is open — call sites
+    /// check `current_folder()` first and route to the legacy
+    /// Postgres+engine path when None.
+    AddNeuronToFolder {
+        label: String,
+        metadata: serde_json::Value,
+        reply: oneshot::Sender<Result<FolderNodeRecord, String>>,
+    },
+    /// Add a synapse to the open folder and to SimEngine.
+    AddSynapseToFolder {
+        pre: Uuid,
+        post: Uuid,
+        weight: f32,
+        metadata: serde_json::Value,
+        reply: oneshot::Sender<Result<FolderEdgeRecord, String>>,
+    },
+    /// Remove a neuron (cascades to incident edges) from disk and from
+    /// SimEngine. Returns `None` if the neuron wasn't in the topology.
+    RemoveNeuronFromFolder {
+        node_id: Uuid,
+        reply: oneshot::Sender<Result<Option<FolderRemoveSummary>, String>>,
+    },
+    /// Remove one synapse from disk and from SimEngine.
+    RemoveSynapseFromFolder {
+        edge_id: Uuid,
+        reply: oneshot::Sender<Result<bool, String>>,
+    },
+}
+
+/// Returned by `AddNeuronToFolder` — enough fields to render a
+/// `CortexNode`-shaped JSON response without re-reading topology.json.
+#[derive(Debug, Clone)]
+pub struct FolderNodeRecord {
+    pub id: Uuid,
+    pub label: String,
+    pub node_type: String,
+    pub metadata: serde_json::Value,
+}
+
+#[derive(Debug, Clone)]
+pub struct FolderEdgeRecord {
+    pub id: Uuid,
+    pub pre_id: Uuid,
+    pub post_id: Uuid,
+    pub weight: f32,
+    pub edge_type: String,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct FolderRemoveSummary {
+    /// Number of incident edges cascaded by a neuron removal.
+    pub cascaded_edges: usize,
 }
 
 /// Returned to a caller of `Open`. Lets the REST handler render a
@@ -241,6 +295,67 @@ impl SimHandle {
             .map_err(|_| "engine offline".to_string())?;
         rx.await.map_err(|_| "engine dropped reply".to_string())?
     }
+
+    /// Append a neuron to the open `.cortex/` folder and to the engine.
+    /// Caller must have verified `current_folder().is_some()` — the
+    /// actor returns an error string otherwise.
+    pub async fn add_neuron_to_folder(
+        &self,
+        label: String,
+        metadata: serde_json::Value,
+    ) -> Result<FolderNodeRecord, String> {
+        let (tx, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(EngineCommand::AddNeuronToFolder { label, metadata, reply: tx })
+            .await
+            .map_err(|_| "engine offline".to_string())?;
+        rx.await.map_err(|_| "engine dropped reply".to_string())?
+    }
+
+    pub async fn add_synapse_to_folder(
+        &self,
+        pre: Uuid,
+        post: Uuid,
+        weight: f32,
+        metadata: serde_json::Value,
+    ) -> Result<FolderEdgeRecord, String> {
+        let (tx, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(EngineCommand::AddSynapseToFolder {
+                pre,
+                post,
+                weight,
+                metadata,
+                reply: tx,
+            })
+            .await
+            .map_err(|_| "engine offline".to_string())?;
+        rx.await.map_err(|_| "engine dropped reply".to_string())?
+    }
+
+    pub async fn remove_neuron_from_folder(
+        &self,
+        node_id: Uuid,
+    ) -> Result<Option<FolderRemoveSummary>, String> {
+        let (tx, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(EngineCommand::RemoveNeuronFromFolder { node_id, reply: tx })
+            .await
+            .map_err(|_| "engine offline".to_string())?;
+        rx.await.map_err(|_| "engine dropped reply".to_string())?
+    }
+
+    pub async fn remove_synapse_from_folder(
+        &self,
+        edge_id: Uuid,
+    ) -> Result<bool, String> {
+        let (tx, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(EngineCommand::RemoveSynapseFromFolder { edge_id, reply: tx })
+            .await
+            .map_err(|_| "engine offline".to_string())?;
+        rx.await.map_err(|_| "engine dropped reply".to_string())?
+    }
 }
 
 /// Spawn the engine task. Returns a handle plus a join handle for
@@ -275,6 +390,11 @@ pub fn spawn_engine(tick_hz: u32) -> (SimHandle, tokio::task::JoinHandle<()>) {
         // any. `None` means the engine is running on transient state
         // built via `Configure` + `AddNode` calls — same shape as M0.
         let mut current_folder: Option<PathBuf> = None;
+        // Live handle to the open `.cortex/` folder. When `Some`, every
+        // topology mutation must flow through it so `topology.json`
+        // stays in lockstep with SimEngine. The actor is the sole owner
+        // — no other task touches the handle, so we don't need a lock.
+        let mut current_cortex: Option<Cortex> = None;
         let mut ticker = tokio::time::interval(tick_dur);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
@@ -329,6 +449,7 @@ pub fn spawn_engine(tick_hz: u32) -> (SimHandle, tokio::task::JoinHandle<()>) {
                             // previously-open folder — the engine is
                             // now running on transient memory only.
                             current_folder = None;
+                            current_cortex = None;
                             let _ = reply.send(());
                         }
                         EngineCommand::GetType(reply) => {
@@ -336,7 +457,7 @@ pub fn spawn_engine(tick_hz: u32) -> (SimHandle, tokio::task::JoinHandle<()>) {
                         }
                         EngineCommand::Open { folder, reply } => {
                             match open_folder_into_engine(&folder) {
-                                Ok((new_engine, new_type, new_kind, summary)) => {
+                                Ok((new_engine, new_type, new_kind, new_cortex, summary)) => {
                                     tracing::info!(
                                         folder = %folder.display(),
                                         cortex_type = %new_type.slug(),
@@ -349,6 +470,7 @@ pub fn spawn_engine(tick_hz: u32) -> (SimHandle, tokio::task::JoinHandle<()>) {
                                     current_type = new_type;
                                     current_kind = new_kind;
                                     current_folder = Some(folder);
+                                    current_cortex = Some(new_cortex);
                                     let _ = reply.send(Ok(summary));
                                 }
                                 Err(msg) => {
@@ -377,6 +499,129 @@ pub fn spawn_engine(tick_hz: u32) -> (SimHandle, tokio::task::JoinHandle<()>) {
                             let result = engine
                                 .set_neuron_param(node_id, &key, &value)
                                 .map_err(|e| e.to_string());
+                            let _ = reply.send(result);
+                        }
+                        EngineCommand::AddNeuronToFolder { label, metadata, reply } => {
+                            let result = match current_cortex.as_mut() {
+                                None => Err(
+                                    "no .cortex/ folder open; route writes through Postgres path"
+                                        .to_string(),
+                                ),
+                                Some(cortex) => {
+                                    let spec = CortexAddNeuron {
+                                        id: None,
+                                        label: label.clone(),
+                                        kind: None,
+                                        metadata: Some(metadata.clone()),
+                                        init_state: None,
+                                    };
+                                    match cortex.add_neuron(spec) {
+                                        Ok(id) => {
+                                            // Mirror into SimEngine so the simulator
+                                            // sees the new neuron without reopening.
+                                            engine.add_neuron_with_kind(id, &current_kind);
+                                            Ok(FolderNodeRecord {
+                                                id,
+                                                label,
+                                                node_type: current_type.slug().to_string(),
+                                                metadata,
+                                            })
+                                        }
+                                        Err(e) => Err(e.to_string()),
+                                    }
+                                }
+                            };
+                            let _ = reply.send(result);
+                        }
+                        EngineCommand::AddSynapseToFolder {
+                            pre,
+                            post,
+                            weight,
+                            metadata,
+                            reply,
+                        } => {
+                            let result = match current_cortex.as_mut() {
+                                None => Err(
+                                    "no .cortex/ folder open; route writes through Postgres path"
+                                        .to_string(),
+                                ),
+                                Some(cortex) => {
+                                    let spec = CortexAddSynapse {
+                                        id: None,
+                                        pre,
+                                        post,
+                                        kind: None,
+                                        init_weight: weight,
+                                        delay_ms: None,
+                                        metadata: Some(metadata.clone()),
+                                    };
+                                    let edge_type = cortex
+                                        .topology()
+                                        .defaults
+                                        .synapse
+                                        .kind
+                                        .clone();
+                                    match cortex.add_synapse(spec) {
+                                        Ok(id) => {
+                                            engine.add_edge(id, pre, post, weight);
+                                            Ok(FolderEdgeRecord {
+                                                id,
+                                                pre_id: pre,
+                                                post_id: post,
+                                                weight,
+                                                edge_type,
+                                            })
+                                        }
+                                        Err(e) => Err(e.to_string()),
+                                    }
+                                }
+                            };
+                            let _ = reply.send(result);
+                        }
+                        EngineCommand::RemoveNeuronFromFolder { node_id, reply } => {
+                            let result = match current_cortex.as_mut() {
+                                None => Err(
+                                    "no .cortex/ folder open; route writes through Postgres path"
+                                        .to_string(),
+                                ),
+                                Some(cortex) => {
+                                    let present = cortex
+                                        .topology()
+                                        .nodes
+                                        .iter()
+                                        .any(|n| n.id == node_id);
+                                    if !present {
+                                        Ok(None)
+                                    } else {
+                                        match cortex.remove_neuron(node_id) {
+                                            Ok(cascaded) => {
+                                                engine.remove_neuron(node_id);
+                                                Ok(Some(FolderRemoveSummary {
+                                                    cascaded_edges: cascaded,
+                                                }))
+                                            }
+                                            Err(e) => Err(e.to_string()),
+                                        }
+                                    }
+                                }
+                            };
+                            let _ = reply.send(result);
+                        }
+                        EngineCommand::RemoveSynapseFromFolder { edge_id, reply } => {
+                            let result = match current_cortex.as_mut() {
+                                None => Err(
+                                    "no .cortex/ folder open; route writes through Postgres path"
+                                        .to_string(),
+                                ),
+                                Some(cortex) => match cortex.remove_synapse(edge_id) {
+                                    Ok(true) => {
+                                        engine.remove_synapse(edge_id);
+                                        Ok(true)
+                                    }
+                                    Ok(false) => Ok(false),
+                                    Err(e) => Err(e.to_string()),
+                                },
+                            };
                             let _ = reply.send(result);
                         }
                     }
@@ -508,6 +753,214 @@ mod tests {
         assert!(!err.is_empty(), "error should have a non-empty message");
     }
 
+    /// Round-trip: open a freshly-created folder, push a neuron through
+    /// the folder-write command, drop the engine, spawn a new engine,
+    /// open the same folder — the neuron must persist via topology.json
+    /// without any DB involvement.
+    #[tokio::test]
+    async fn folder_neuron_write_persists_across_engine_restart() {
+        use cortex_snn::format::topology::{NeuronSpec, SynapseSpec, TopologyDefaults};
+        use cortex_snn::CreateOptions;
+        use std::time::SystemTime;
+
+        let nanos = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("core-folder-write-persist-{nanos}"));
+        cortex_snn::Cortex::create(
+            &root,
+            CreateOptions {
+                name: "Persist".into(),
+                cortex_type: "lif".into(),
+                source_root: root.display().to_string(),
+                now_rfc3339: "2026-05-21T12:00:00Z".into(),
+                defaults: TopologyDefaults {
+                    neuron: NeuronSpec::lif(),
+                    synapse: SynapseSpec::stdp(),
+                },
+                hh_config: None,
+            },
+        )
+        .unwrap();
+
+        // Engine #1: open + add.
+        let (handle, _join) = spawn_engine(1000);
+        handle.open(root.clone()).await.unwrap();
+        let rec = handle
+            .add_neuron_to_folder(
+                "first-manual".to_string(),
+                serde_json::json!({ "x": 1.0, "y": 2.0 }),
+            )
+            .await
+            .unwrap();
+        // Drop the handle — actor's owned Cortex goes with it.
+        drop(handle);
+
+        // Engine #2: a brand-new actor opens the same folder and must
+        // see the persisted neuron.
+        let (handle2, _join2) = spawn_engine(1000);
+        let summary = handle2.open(root.clone()).await.unwrap();
+        assert_eq!(summary.n_nodes, 1, "neuron should survive restart on disk");
+        let neurons = handle2.list_neurons().await.unwrap();
+        assert!(
+            neurons.iter().any(|id| *id == rec.id),
+            "hydrated SimEngine should contain the persisted neuron"
+        );
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// Cross-network isolation: writes against folder A must not leak
+    /// into folder B. The actor switches Cortex handles atomically on
+    /// Open, so opening B after writing to A should show zero nodes
+    /// from A in B, and reopening A still shows the original write.
+    #[tokio::test]
+    async fn folder_writes_isolated_across_networks() {
+        use cortex_snn::format::topology::{NeuronSpec, SynapseSpec, TopologyDefaults};
+        use cortex_snn::CreateOptions;
+        use std::time::SystemTime;
+
+        let nanos = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root_a = std::env::temp_dir().join(format!("core-folder-isolation-a-{nanos}"));
+        let root_b = std::env::temp_dir().join(format!("core-folder-isolation-b-{nanos}"));
+        for r in [&root_a, &root_b] {
+            cortex_snn::Cortex::create(
+                r,
+                CreateOptions {
+                    name: r.file_name().unwrap().to_string_lossy().to_string(),
+                    cortex_type: "lif".into(),
+                    source_root: r.display().to_string(),
+                    now_rfc3339: "2026-05-21T12:00:00Z".into(),
+                    defaults: TopologyDefaults {
+                        neuron: NeuronSpec::lif(),
+                        synapse: SynapseSpec::stdp(),
+                    },
+                    hh_config: None,
+                },
+            )
+            .unwrap();
+        }
+
+        let (handle, _join) = spawn_engine(1000);
+
+        handle.open(root_a.clone()).await.unwrap();
+        let a_rec = handle
+            .add_neuron_to_folder("a-only".into(), serde_json::json!({}))
+            .await
+            .unwrap();
+
+        let b_summary = handle.open(root_b.clone()).await.unwrap();
+        assert_eq!(
+            b_summary.n_nodes, 0,
+            "folder B must not see folder A's neuron"
+        );
+        let b_neurons = handle.list_neurons().await.unwrap();
+        assert!(
+            b_neurons.iter().all(|id| *id != a_rec.id),
+            "SimEngine must be wiped on open-folder swap"
+        );
+
+        // Reopening A should still find the original neuron — the disk
+        // file owns the persistence, not the engine.
+        let a_summary = handle.open(root_a.clone()).await.unwrap();
+        assert_eq!(a_summary.n_nodes, 1, "folder A's neuron must still be on disk");
+
+        std::fs::remove_dir_all(&root_a).ok();
+        std::fs::remove_dir_all(&root_b).ok();
+    }
+
+    /// Synapse + remove path: add neuron, add synapse, remove neuron —
+    /// the cascade must drop the incident edge in both the topology
+    /// file and the live SimEngine, and a fresh open must reflect the
+    /// final state.
+    #[tokio::test]
+    async fn folder_synapse_and_cascade_round_trip() {
+        use cortex_snn::format::topology::{NeuronSpec, SynapseSpec, TopologyDefaults};
+        use cortex_snn::CreateOptions;
+        use std::time::SystemTime;
+
+        let nanos = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("core-folder-cascade-{nanos}"));
+        cortex_snn::Cortex::create(
+            &root,
+            CreateOptions {
+                name: "Cascade".into(),
+                cortex_type: "lif".into(),
+                source_root: root.display().to_string(),
+                now_rfc3339: "2026-05-21T12:00:00Z".into(),
+                defaults: TopologyDefaults {
+                    neuron: NeuronSpec::lif(),
+                    synapse: SynapseSpec::stdp(),
+                },
+                hh_config: None,
+            },
+        )
+        .unwrap();
+
+        let (handle, _join) = spawn_engine(1000);
+        handle.open(root.clone()).await.unwrap();
+        let a = handle
+            .add_neuron_to_folder("a".into(), serde_json::json!({}))
+            .await
+            .unwrap();
+        let b = handle
+            .add_neuron_to_folder("b".into(), serde_json::json!({}))
+            .await
+            .unwrap();
+        let edge = handle
+            .add_synapse_to_folder(a.id, b.id, 0.4, serde_json::json!({}))
+            .await
+            .unwrap();
+
+        // Sanity: synapse exists in both engine and disk before removal.
+        let snap = handle.snapshot().await.unwrap();
+        assert_eq!(snap.n_neurons, 2);
+        assert_eq!(snap.n_synapses, 1);
+
+        // Removing the pre-neuron must cascade the edge.
+        let removed = handle
+            .remove_neuron_from_folder(a.id)
+            .await
+            .unwrap()
+            .expect("neuron was present");
+        assert_eq!(removed.cascaded_edges, 1);
+
+        let snap2 = handle.snapshot().await.unwrap();
+        assert_eq!(snap2.n_neurons, 1, "removed neuron leaves only b");
+        assert_eq!(snap2.n_synapses, 0, "incident edge cascaded in engine");
+
+        // Reopen with a fresh engine and confirm disk matches.
+        drop(handle);
+        let (handle2, _join2) = spawn_engine(1000);
+        let summary = handle2.open(root.clone()).await.unwrap();
+        assert_eq!(summary.n_nodes, 1);
+        assert_eq!(summary.n_edges, 0);
+
+        // Removing the (already-cascaded) edge id now returns false.
+        let again = handle2.remove_synapse_from_folder(edge.id).await.unwrap();
+        assert!(!again);
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// Folder-write commands must refuse cleanly when no folder is open.
+    #[tokio::test]
+    async fn folder_write_without_open_returns_error() {
+        let (handle, _join) = spawn_engine(1000);
+        let err = handle
+            .add_neuron_to_folder("x".into(), serde_json::json!({}))
+            .await
+            .unwrap_err();
+        assert!(err.contains("no .cortex/ folder open"), "got: {err}");
+    }
+
     /// After a successful Open, a subsequent bare Configure should
     /// detach from the folder and reset `current_folder` to None.
     #[tokio::test]
@@ -559,7 +1012,7 @@ mod tests {
 /// grow to 100k-edge scale.
 fn open_folder_into_engine(
     folder: &std::path::Path,
-) -> Result<(SimEngine, CortexType, NeuronKind, OpenSummary), String> {
+) -> Result<(SimEngine, CortexType, NeuronKind, Cortex, OpenSummary), String> {
     let cortex = cortex_snn::Cortex::open(folder).map_err(|e| e.to_string())?;
     let topology: &TopologyFile = cortex.topology();
     let metadata = cortex.metadata();
@@ -630,7 +1083,7 @@ fn open_folder_into_engine(
         n_edges: topology.edges.len(),
         weights_loaded,
     };
-    Ok((engine, cortex_type, kind, summary))
+    Ok((engine, cortex_type, kind, cortex, summary))
 }
 
 /// Periodically diff the live weight set against the last published one
