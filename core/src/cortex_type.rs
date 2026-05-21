@@ -57,6 +57,25 @@ impl CortexType {
             Self::Hh { .. } => "hh",
         }
     }
+
+    /// Reconstruct a `CortexType` from the slug + optional HH config
+    /// blob persisted in `metadata.json`. Returns `None` for unknown
+    /// slugs — caller decides whether to default-fallback or surface
+    /// the error.
+    pub fn from_slug_and_config(slug: &str, hh_config: Option<&serde_json::Value>) -> Option<Self> {
+        match slug {
+            "knowledge-graph" => Some(Self::KnowledgeGraph),
+            "lif" => Some(Self::Lif),
+            "hh" => {
+                let config = match hh_config {
+                    Some(v) => serde_json::from_value(v.clone()).ok()?,
+                    None => HhConfig::default(),
+                };
+                Some(Self::Hh { config })
+            }
+            _ => None,
+        }
+    }
 }
 
 impl Default for CortexType {

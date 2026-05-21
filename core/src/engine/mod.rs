@@ -20,11 +20,13 @@ pub use cortex_snn::engine::sim::SimEngine;
 pub use spike_persist::spawn_spike_persister;
 pub use weight_persist::spawn_weight_persister;
 
+use std::path::PathBuf;
 use std::time::Duration;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use uuid::Uuid;
 
 use crate::cortex_type::CortexType;
+use cortex_snn::format::topology::TopologyFile;
 use cortex_snn::NeuronKind;
 
 /// Public, cloneable handle to the running engine task. Embed in axum's
@@ -63,6 +65,31 @@ pub enum EngineCommand {
     Configure { cortex_type: CortexType, reply: oneshot::Sender<()> },
     /// Return the currently-active cortex type (for `GET /api/cortex`).
     GetType(oneshot::Sender<CortexType>),
+    /// Open a `.cortex/` folder and hydrate the engine from its
+    /// `topology.json` + `weights/{type}/latest.cwt`. Wipes prior in-
+    /// memory state (same destructive contract as `Configure`). The
+    /// reply carries a summary so the caller can confirm sizes without
+    /// a follow-up snapshot.
+    Open {
+        folder: PathBuf,
+        reply: oneshot::Sender<Result<OpenSummary, String>>,
+    },
+    /// Return the path of the currently-open `.cortex/` folder, if any.
+    /// `None` means the engine is running on transient state (a bare
+    /// `Configure` was used, no folder ever opened).
+    GetFolder(oneshot::Sender<Option<PathBuf>>),
+}
+
+/// Returned to a caller of `Open`. Lets the REST handler render a
+/// useful response without a round-trip back into the actor.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct OpenSummary {
+    pub folder: String,
+    pub cortex_type: String,
+    pub name: String,
+    pub n_nodes: usize,
+    pub n_edges: usize,
+    pub weights_loaded: usize,
 }
 
 impl SimHandle {
@@ -133,6 +160,25 @@ impl SimHandle {
             .map_err(|_| "engine offline")?;
         rx.await.map_err(|_| "engine dropped reply")
     }
+
+    /// Open a `.cortex/` folder and hydrate the engine from disk.
+    /// Returns the substrate's `Display` error text on failure so
+    /// handlers can pass it straight to the user.
+    pub async fn open(&self, folder: PathBuf) -> Result<OpenSummary, String> {
+        let (tx, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(EngineCommand::Open { folder, reply: tx })
+            .await
+            .map_err(|_| "engine offline".to_string())?;
+        rx.await.map_err(|_| "engine dropped reply".to_string())?
+    }
+
+    pub async fn current_folder(&self) -> Result<Option<PathBuf>, &'static str> {
+        let (tx, rx) = oneshot::channel();
+        self.cmd_tx.send(EngineCommand::GetFolder(tx)).await
+            .map_err(|_| "engine offline")?;
+        rx.await.map_err(|_| "engine dropped reply")
+    }
 }
 
 /// Spawn the engine task. Returns a handle plus a join handle for
@@ -163,6 +209,10 @@ pub fn spawn_engine(tick_hz: u32) -> (SimHandle, tokio::task::JoinHandle<()>) {
         // configured HH engine gets HH neurons from the first insert.
         let mut current_type: CortexType = CortexType::default();
         let mut current_kind: NeuronKind = current_type.neuron_kind();
+        // The folder this engine instance was last hydrated from, if
+        // any. `None` means the engine is running on transient state
+        // built via `Configure` + `AddNode` calls — same shape as M0.
+        let mut current_folder: Option<PathBuf> = None;
         let mut ticker = tokio::time::interval(tick_dur);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
@@ -213,10 +263,44 @@ pub fn spawn_engine(tick_hz: u32) -> (SimHandle, tokio::task::JoinHandle<()>) {
                             engine = SimEngine::new();
                             current_kind = cortex_type.neuron_kind();
                             current_type = cortex_type;
+                            // A bare Configure detaches from any
+                            // previously-open folder — the engine is
+                            // now running on transient memory only.
+                            current_folder = None;
                             let _ = reply.send(());
                         }
                         EngineCommand::GetType(reply) => {
                             let _ = reply.send(current_type.clone());
+                        }
+                        EngineCommand::Open { folder, reply } => {
+                            match open_folder_into_engine(&folder) {
+                                Ok((new_engine, new_type, new_kind, summary)) => {
+                                    tracing::info!(
+                                        folder = %folder.display(),
+                                        cortex_type = %new_type.slug(),
+                                        n_nodes = summary.n_nodes,
+                                        n_edges = summary.n_edges,
+                                        weights_loaded = summary.weights_loaded,
+                                        "engine hydrated from .cortex/ folder"
+                                    );
+                                    engine = new_engine;
+                                    current_type = new_type;
+                                    current_kind = new_kind;
+                                    current_folder = Some(folder);
+                                    let _ = reply.send(Ok(summary));
+                                }
+                                Err(msg) => {
+                                    tracing::warn!(
+                                        folder = %folder.display(),
+                                        error = %msg,
+                                        "engine open failed"
+                                    );
+                                    let _ = reply.send(Err(msg));
+                                }
+                            }
+                        }
+                        EngineCommand::GetFolder(reply) => {
+                            let _ = reply.send(current_folder.clone());
                         }
                     }
                 }
@@ -269,6 +353,207 @@ mod tests {
         let ct = handle.cortex_type().await.unwrap();
         assert_eq!(ct.slug(), "hh");
     }
+
+    /// Build a tiny HH `.cortex/` folder via the substrate, then ask
+    /// the actor to open it. Asserts the actor reports the right
+    /// neuron/edge counts and accepts a stimulate command on the
+    /// hydrated neuron afterward. Proves the on-disk → in-memory
+    /// pipeline works end-to-end from core's perspective.
+    #[tokio::test]
+    async fn engine_opens_cortex_folder_from_disk() {
+        use cortex_snn::format::topology::{NeuronSpec, SynapseSpec, TopologyDefaults};
+        use cortex_snn::{AddNeuron, AddSynapse, CreateOptions};
+        use std::time::SystemTime;
+
+        let nanos = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("core-engine-open-{nanos}"));
+
+        // Build a 2-neuron HH folder.
+        let mut cx = cortex_snn::Cortex::create(
+            &root,
+            CreateOptions {
+                name: "Open Test".into(),
+                cortex_type: "hh".into(),
+                source_root: root.display().to_string(),
+                now_rfc3339: "2026-05-21T12:00:00Z".into(),
+                defaults: TopologyDefaults {
+                    neuron: NeuronSpec::hh(None),
+                    synapse: SynapseSpec::stdp(),
+                },
+                hh_config: None,
+            },
+        )
+        .unwrap();
+        let a = cx.add_neuron(AddNeuron { label: "a".into(), ..Default::default() }).unwrap();
+        let b = cx.add_neuron(AddNeuron { label: "b".into(), ..Default::default() }).unwrap();
+        cx.add_synapse(AddSynapse {
+            id: None,
+            pre: a,
+            post: b,
+            kind: None,
+            init_weight: 0.4,
+            delay_ms: None,
+            metadata: None,
+        })
+        .unwrap();
+        drop(cx);
+
+        let (handle, _join) = spawn_engine(1000);
+        let summary = handle.open(root.clone()).await.expect("open should succeed");
+        assert_eq!(summary.cortex_type, "hh");
+        assert_eq!(summary.n_nodes, 2);
+        assert_eq!(summary.n_edges, 1);
+
+        // Engine should now report the right cortex type via the
+        // existing query, *and* current_folder should be set.
+        let ct = handle.cortex_type().await.unwrap();
+        assert_eq!(ct.slug(), "hh");
+        let f = handle.current_folder().await.unwrap();
+        assert_eq!(f.as_deref(), Some(root.as_path()));
+
+        // Stimulating one of the hydrated neurons should not error
+        // (proves the engine knows about the neuron by id).
+        handle.stimulate(a, 5.0, 10.0).await.unwrap();
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// Opening a non-existent folder must return a clean error, not
+    /// crash the actor.
+    #[tokio::test]
+    async fn engine_open_missing_folder_returns_error() {
+        let (handle, _join) = spawn_engine(1000);
+        let bogus = std::path::PathBuf::from("/tmp/this-path-does-not-exist-cortex-test");
+        let err = handle.open(bogus).await.unwrap_err();
+        assert!(!err.is_empty(), "error should have a non-empty message");
+    }
+
+    /// After a successful Open, a subsequent bare Configure should
+    /// detach from the folder and reset `current_folder` to None.
+    #[tokio::test]
+    async fn configure_after_open_clears_folder() {
+        use cortex_snn::format::topology::{NeuronSpec, SynapseSpec, TopologyDefaults};
+        use cortex_snn::CreateOptions;
+        use std::time::SystemTime;
+
+        let nanos = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("core-configure-detach-{nanos}"));
+        let _cx = cortex_snn::Cortex::create(
+            &root,
+            CreateOptions {
+                name: "Detach".into(),
+                cortex_type: "lif".into(),
+                source_root: root.display().to_string(),
+                now_rfc3339: "2026-05-21T12:00:00Z".into(),
+                defaults: TopologyDefaults {
+                    neuron: NeuronSpec::lif(),
+                    synapse: SynapseSpec::stdp(),
+                },
+                hh_config: None,
+            },
+        )
+        .unwrap();
+
+        let (handle, _join) = spawn_engine(1000);
+        handle.open(root.clone()).await.unwrap();
+        assert!(handle.current_folder().await.unwrap().is_some());
+
+        handle.configure(CortexType::Lif).await.unwrap();
+        assert!(handle.current_folder().await.unwrap().is_none());
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+}
+
+/// Open a `.cortex/` folder via the substrate's [`cortex_snn::Cortex`]
+/// handle and produce a fresh `SimEngine` populated from disk. Pure
+/// sync (uses `std::fs` through the substrate), so the actor wraps it
+/// in `tokio::task::block_in_place` … actually no — the disk reads are
+/// small (a JSON topology and a binary weights file), well under the
+/// "block the runtime for a few ms" budget, and wrapping in
+/// `spawn_blocking` would force ownership gymnastics across an async
+/// boundary the actor doesn't need. Keep it sync; revisit if folders
+/// grow to 100k-edge scale.
+fn open_folder_into_engine(
+    folder: &std::path::Path,
+) -> Result<(SimEngine, CortexType, NeuronKind, OpenSummary), String> {
+    let cortex = cortex_snn::Cortex::open(folder).map_err(|e| e.to_string())?;
+    let topology: &TopologyFile = cortex.topology();
+    let metadata = cortex.metadata();
+
+    let cortex_type = CortexType::from_slug_and_config(
+        &metadata.cortex_type,
+        metadata.hh_config.as_ref(),
+    )
+    .ok_or_else(|| format!(
+        "unknown cortex_type '{}' in folder {}",
+        metadata.cortex_type,
+        folder.display(),
+    ))?;
+    let kind = cortex_type.neuron_kind();
+
+    let mut engine = SimEngine::new();
+    for n in &topology.nodes {
+        // Per-node `kind` overrides are accepted by the format but the
+        // actor currently runs a single neuron kind. If the override
+        // disagrees with the default we surface it rather than
+        // silently using the default — the user's intent should be
+        // honored or rejected, never quietly ignored.
+        let effective = topology.effective_neuron(n);
+        if effective.kind != topology.defaults.neuron.kind {
+            return Err(format!(
+                "node {} requests neuron kind '{}' but engine currently \
+                 runs a single kind '{}' per folder; \
+                 mixed-kind networks are not supported in v1",
+                n.id,
+                effective.kind,
+                topology.defaults.neuron.kind,
+            ));
+        }
+        engine.add_neuron_with_kind(n.id, &kind);
+    }
+    for e in &topology.edges {
+        engine.add_edge(e.id, e.pre, e.post, e.init_weight);
+    }
+
+    // Apply persisted weights on top of the init_weight values. Missing
+    // weights file is fine — a freshly-created folder has none.
+    let weights = cortex.load_weights().map_err(|e| e.to_string())?;
+    let weights_loaded = weights.len();
+    for (edge_id, w) in weights {
+        // SimEngine's add_edge already set an initial weight; we don't
+        // have a `set_weight` on the engine itself, so the cleanest
+        // path is to update the synapse directly via a future
+        // `set_weight` method. For now, recreating the edge with the
+        // loaded weight matches the existing `add_edge` semantics
+        // (idempotent-by-id is enforced inside SimEngine via the
+        // hash-map insert).
+        //
+        // TODO(PR C2): expose `SimEngine::set_edge_weight(edge_id, w)`
+        // and call it here. The current path works because add_edge
+        // overwrites a same-id edge.
+        //
+        // Find the edge's pre/post from topology so we can reissue.
+        if let Some(spec) = topology.edges.iter().find(|te| te.id == edge_id) {
+            engine.add_edge(edge_id, spec.pre, spec.post, w);
+        }
+    }
+
+    let summary = OpenSummary {
+        folder: folder.display().to_string(),
+        cortex_type: metadata.cortex_type.clone(),
+        name: metadata.name.clone(),
+        n_nodes: topology.nodes.len(),
+        n_edges: topology.edges.len(),
+        weights_loaded,
+    };
+    Ok((engine, cortex_type, kind, summary))
 }
 
 /// Periodically diff the live weight set against the last published one

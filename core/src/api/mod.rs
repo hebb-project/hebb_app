@@ -35,6 +35,8 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/stimulate", post(stimulate::post_stimulate))
         .route("/api/chat", post(chat::post_chat))
         .route("/api/cortex", get(cortex::get_current).post(cortex::post_configure))
+        .route("/api/cortex/open", post(cortex::post_open))
+        .route("/api/cortex/folder", get(cortex::get_folder))
         .route("/api/vault/ingest", post(vault::post_ingest))
         .route("/api/graph/weights", get(weights::get_weights_snapshot))
         .route("/ws/spikes", get(ws::ws_spikes))

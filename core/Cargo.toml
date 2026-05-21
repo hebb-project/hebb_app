@@ -12,7 +12,10 @@ path = "src/main.rs"
 [dependencies]
 # SNN substrate — the simulator, neuron/synapse traits, and wire types
 # live here. `core` is just the axum/tokio/DB shell around it.
-cortex-snn = { path = "../cortex-snn" }
+# `disk` feature pulls in `cortex_snn::Cortex` so the engine actor can
+# hydrate from a `.cortex/` folder via `POST /api/cortex/open`. The
+# substrate stays I/O-free for other consumers; only core opts in.
+cortex-snn = { path = "../cortex-snn", features = ["disk"] }
 
 # Async runtime / web
 tokio = { version = "1.40", features = ["macros", "rt-multi-thread", "sync", "signal", "time", "fs", "io-util"] }
