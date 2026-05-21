@@ -128,6 +128,13 @@ pub enum EngineCommand {
         edge_id: Uuid,
         reply: oneshot::Sender<Result<bool, String>>,
     },
+    /// Snapshot the live weights and persist them to
+    /// `weights/{type}/latest.cwt` via the open `Cortex` handle.
+    /// Returns `Ok(None)` when no folder is open — the caller should
+    /// fall back to the Postgres path.
+    FlushWeightsToOpenFolder {
+        reply: oneshot::Sender<Result<Option<usize>, String>>,
+    },
 }
 
 /// Returned by `AddNeuronToFolder` — enough fields to render a
@@ -352,6 +359,18 @@ impl SimHandle {
         let (tx, rx) = oneshot::channel();
         self.cmd_tx
             .send(EngineCommand::RemoveSynapseFromFolder { edge_id, reply: tx })
+            .await
+            .map_err(|_| "engine offline".to_string())?;
+        rx.await.map_err(|_| "engine dropped reply".to_string())?
+    }
+
+    /// Persist the current weight set to the open `.cortex/` folder.
+    /// `Ok(Some(n))` means n edges were written; `Ok(None)` means no
+    /// folder is open and the caller should fall back to its DB path.
+    pub async fn flush_weights_to_open_folder(&self) -> Result<Option<usize>, String> {
+        let (tx, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(EngineCommand::FlushWeightsToOpenFolder { reply: tx })
             .await
             .map_err(|_| "engine offline".to_string())?;
         rx.await.map_err(|_| "engine dropped reply".to_string())?
@@ -603,6 +622,20 @@ pub fn spawn_engine(tick_hz: u32) -> (SimHandle, tokio::task::JoinHandle<()>) {
                                             Err(e) => Err(e.to_string()),
                                         }
                                     }
+                                }
+                            };
+                            let _ = reply.send(result);
+                        }
+                        EngineCommand::FlushWeightsToOpenFolder { reply } => {
+                            let result = match current_cortex.as_ref() {
+                                None => Ok(None),
+                                Some(cortex) => {
+                                    let snap = engine.weight_snapshot();
+                                    let n = snap.len();
+                                    cortex
+                                        .persist_weights(snap)
+                                        .map(|_| Some(n))
+                                        .map_err(|e| e.to_string())
                                 }
                             };
                             let _ = reply.send(result);
