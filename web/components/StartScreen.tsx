@@ -323,8 +323,10 @@ export function StartScreen({ onOpen }: Props) {
 
     const existing = networks.find((network) => network.folderPath === selected);
     if (existing) {
-      // Re-inspect so the metadata flag reflects the on-disk truth, not
-      // the cached value from when the user first added this folder.
+      // Re-inspect so the metadata flag and topology counts reflect the
+      // on-disk truth rather than cached values from when the folder was
+      // first added. This is what persists nodeEstimate/edgeEstimate from
+      // the actual topology.json.
       const info = await inspectCortexFolder(selected);
       if (info) {
         existing.hasMetadata = info.has_cortex;
@@ -332,6 +334,8 @@ export function StartScreen({ onOpen }: Props) {
           existing.cortexType = info.metadata.cortex_type as CortexTypeSlug;
           existing.origin = existing.cortexType;
         }
+        if (info.node_count !== null) existing.nodeEstimate = info.node_count;
+        if (info.edge_count !== null) existing.edgeEstimate = info.edge_count;
       }
       try {
         await persistAndOpen(existing);
@@ -355,6 +359,10 @@ export function StartScreen({ onOpen }: Props) {
           hasMetadata: true,
           createdAt: info.metadata.created_at ?? new Date().toISOString(),
           lastOpenedAt: new Date().toISOString(),
+          // Persist topology counts so the network list reflects what's
+          // actually in the folder rather than "0 nodes" defaults.
+          nodeEstimate: info.node_count ?? undefined,
+          edgeEstimate: info.edge_count ?? undefined,
         });
       } catch {
         // Status is set by persistAndOpen; keep the start screen active.

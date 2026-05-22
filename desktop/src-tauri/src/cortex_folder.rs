@@ -85,10 +85,31 @@ pub struct CortexFolderInfo {
     pub cortex_path: String,
     pub has_cortex: bool,
     pub metadata: Option<CortexMetadata>,
+    /// Node count read directly from `topology.json`, or `None` when the
+    /// file is absent. Allows the start screen to show actual topology
+    /// sizes rather than cached creation estimates.
+    pub node_count: Option<usize>,
+    /// Edge count from `topology.json`, same lifetime as `node_count`.
+    pub edge_count: Option<usize>,
 }
 
 fn cortex_dir(root: &Path) -> PathBuf {
     root.join(CORTEX_DIR)
+}
+
+/// Read `topology.json` from a `.cortex/` dir and return `(node_count,
+/// edge_count)`. Returns `None` if the file is absent or unparseable —
+/// callers treat absence as "topology not yet written" and propagate it
+/// as `None` in the API response rather than as an error.
+async fn read_topology_counts(cortex: &Path) -> Option<(usize, usize)> {
+    let tp = topology_path(cortex);
+    let raw = fs::read_to_string(&tp).await.ok()?;
+    // Only parse the outer shape — we don't need full `TopologyFile`
+    // deserialization; a lightweight count from the JSON value is enough.
+    let val: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let nodes = val.get("nodes")?.as_array()?.len();
+    let edges = val.get("edges")?.as_array()?.len();
+    Some((nodes, edges))
 }
 
 fn metadata_path(root: &Path) -> PathBuf {
@@ -248,11 +269,23 @@ pub async fn inspect_cortex_folder(path: String) -> Result<CortexFolderInfo, Str
     } else {
         None
     };
+    // Read topology counts from disk so the start screen can reflect the
+    // actual folder contents rather than cached creation estimates.
+    let (node_count, edge_count) = if has_cortex {
+        read_topology_counts(&cortex)
+            .await
+            .map(|(n, e)| (Some(n), Some(e)))
+            .unwrap_or((None, None))
+    } else {
+        (None, None)
+    };
     Ok(CortexFolderInfo {
         root: root.to_string_lossy().to_string(),
         cortex_path: cortex.to_string_lossy().to_string(),
         has_cortex,
         metadata,
+        node_count,
+        edge_count,
     })
 }
 
@@ -345,11 +378,20 @@ pub async fn init_cortex_folder(
         tracing::warn!(path = %typed_weights.display(), error = %e, "could not create typed weights subdir");
     }
 
+    // Read the freshly-written topology to expose the initial node/edge
+    // count (always 0 for a fresh init, but consistent with inspect).
+    let (node_count, edge_count) = read_topology_counts(&cortex)
+        .await
+        .map(|(n, e)| (Some(n), Some(e)))
+        .unwrap_or((None, None));
+
     Ok(CortexFolderInfo {
         root: root.to_string_lossy().to_string(),
         cortex_path: cortex.to_string_lossy().to_string(),
         has_cortex: true,
         metadata: load_metadata(&root).await,
+        node_count,
+        edge_count,
     })
 }
 
@@ -508,5 +550,37 @@ mod tests {
             "knowledge-graph"
         );
         assert_eq!(source_kind_to_cortex_type("garbage"), "lif");
+    }
+
+    /// `inspect_cortex_folder` should read topology.json and return
+    /// `node_count`/`edge_count` so the start screen can show actual
+    /// folder contents rather than cached creation estimates.
+    #[tokio::test]
+    async fn inspect_returns_topology_counts() {
+        let dir = tempdir();
+        let p = dir.to_string_lossy().to_string();
+
+        // Before init: no cortex folder → counts absent.
+        let before = inspect_cortex_folder(p.clone()).await.expect("inspect");
+        assert!(before.node_count.is_none());
+        assert!(before.edge_count.is_none());
+
+        // After init with empty topology: 0/0 counts should be present.
+        let after_init = init_cortex_folder(p.clone(), "Count".into(), "lif".into(), None)
+            .await
+            .expect("init");
+        assert_eq!(
+            after_init.node_count,
+            Some(0),
+            "fresh topology should report 0 nodes"
+        );
+        assert_eq!(after_init.edge_count, Some(0));
+
+        // inspect should match init.
+        let inspected = inspect_cortex_folder(p).await.expect("inspect again");
+        assert_eq!(inspected.node_count, Some(0));
+        assert_eq!(inspected.edge_count, Some(0));
+
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

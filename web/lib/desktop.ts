@@ -67,6 +67,10 @@ export type CortexFolderInfo = {
   cortex_path: string;
   has_cortex: boolean;
   metadata: CortexMetadata | null;
+  /** Node count from `topology.json`, or `null` when the file is absent. */
+  node_count: number | null;
+  /** Edge count from `topology.json`, or `null` when the file is absent. */
+  edge_count: number | null;
 };
 
 export async function inspectCortexFolder(path: string): Promise<CortexFolderInfo | null> {
