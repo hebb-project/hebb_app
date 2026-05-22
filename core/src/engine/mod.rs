@@ -1367,16 +1367,31 @@ mod tests {
             .add_neuron_to_folder("n".into(), serde_json::json!({}))
             .await
             .unwrap();
-        let target_v = -55.5_f64;
-        h1.set_node_param(n.id, "v".into(), serde_json::json!(target_v))
+        h1.set_node_param(n.id, "v".into(), serde_json::json!(-55.5_f64))
             .await
             .unwrap();
+        // The engine ticks on its own (LIF leak), so the live `v` will
+        // drift between set_node_param and save. Capture the *actual*
+        // snapshot value via the same code path the save uses, then
+        // assert that's what survives restart — the contract is "what
+        // was on disk at save time hydrates", not "what the caller
+        // last set".
         let written = h1.save_state_to_open_folder().await.unwrap();
         assert_eq!(
             written,
             Some(1),
             "save_state should report one persisted neuron"
         );
+        let persisted = cortex_snn::Cortex::open(&root)
+            .unwrap()
+            .load_state()
+            .unwrap()
+            .expect("state file written");
+        let expected_v = persisted
+            .neurons
+            .get(&n.id)
+            .and_then(|v| v["v"].as_f64())
+            .expect("v in persisted state");
         drop(h1);
 
         // Engine #2: reopen and assert the membrane voltage survived
@@ -1386,9 +1401,18 @@ mod tests {
         assert_eq!(summary.n_nodes, 1);
         let restored = h2.get_node_params(n.id).await.unwrap().unwrap();
         let got_v = restored["v"].as_f64().expect("v in params");
+        // Tolerance covers the engine's first post-open tick. We're
+        // proving "state loaded from disk replaced the default", not
+        // bit-exact reproduction — the default v is -65, the saved
+        // value should be in the -55..-56 range we drove it to.
         assert!(
-            (got_v - target_v).abs() < 1e-6,
-            "membrane voltage should round-trip; got {got_v}, want {target_v}",
+            (got_v - expected_v).abs() < 0.5,
+            "membrane voltage should hydrate near the saved value; \
+             got {got_v}, saved {expected_v}",
+        );
+        assert!(
+            got_v > -60.0,
+            "should not have fallen back to the LIF default (-65)",
         );
 
         std::fs::remove_dir_all(&root).ok();
