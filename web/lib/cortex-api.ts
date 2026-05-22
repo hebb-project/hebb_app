@@ -44,6 +44,8 @@ export type CortexWeightFrame = {
   deltas: CortexWeightDelta[];
 };
 
+export type CortexParams = Record<string, unknown>;
+
 export type CortexSearchResult = {
   node_id: string;
   label: string;
@@ -259,4 +261,46 @@ export async function postStimulate(
     body: JSON.stringify({ node_id: nodeId, current, duration_ms: durationMs }),
   });
   await unwrap(r);
+}
+
+export async function fetchNodeParams(nodeId: string, base?: string): Promise<CortexParams> {
+  const r = await fetch(`${cortexHttpBase(base)}/api/nodes/${nodeId}/params`, {
+    cache: "no-store",
+  });
+  return unwrap(r);
+}
+
+export async function fetchSynapseParams(edgeId: string, base?: string): Promise<CortexParams> {
+  const r = await fetch(`${cortexHttpBase(base)}/api/synapses/${edgeId}/params`, {
+    cache: "no-store",
+  });
+  return unwrap(r);
+}
+
+export async function patchNodeParam(
+  nodeId: string,
+  key: string,
+  value: unknown,
+  base?: string,
+): Promise<CortexParams> {
+  const r = await fetch(`${cortexHttpBase(base)}/api/nodes/${nodeId}/params`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ key, value }),
+  });
+  return unwrap(r);
+}
+
+export async function patchSynapseParam(
+  edgeId: string,
+  key: string,
+  value: unknown,
+  base?: string,
+): Promise<CortexParams> {
+  const r = await fetch(`${cortexHttpBase(base)}/api/synapses/${edgeId}/params`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ key, value }),
+  });
+  return unwrap(r);
 }
