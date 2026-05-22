@@ -6,15 +6,15 @@ pub mod graph;
 pub mod health;
 pub mod params;
 pub mod search;
-pub mod stimulate;
 pub mod state;
+pub mod stimulate;
 pub mod vault;
 pub mod weights;
 pub mod ws;
 
 pub use state::AppState;
 
-use axum::routing::{get, patch, post, delete};
+use axum::routing::{delete, get, post};
 use axum::Router;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
@@ -28,14 +28,26 @@ pub fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/api/health", get(health::get_health))
         .route("/api/graph", get(graph::get_full_graph))
-        .route("/api/graph/nodes", get(graph::list_nodes).post(graph::create_node))
-        .route("/api/graph/nodes/:id", get(graph::get_node).delete(graph::delete_node))
-        .route("/api/graph/edges", get(graph::list_edges).post(graph::create_edge))
+        .route(
+            "/api/graph/nodes",
+            get(graph::list_nodes).post(graph::create_node),
+        )
+        .route(
+            "/api/graph/nodes/:id",
+            get(graph::get_node).delete(graph::delete_node),
+        )
+        .route(
+            "/api/graph/edges",
+            get(graph::list_edges).post(graph::create_edge),
+        )
         .route("/api/graph/edges/:id", delete(graph::delete_edge))
         .route("/api/search", get(search::search_nodes))
         .route("/api/stimulate", post(stimulate::post_stimulate))
         .route("/api/chat", post(chat::post_chat))
-        .route("/api/cortex", get(cortex::get_current).post(cortex::post_configure))
+        .route(
+            "/api/cortex",
+            get(cortex::get_current).post(cortex::post_configure),
+        )
         .route("/api/cortex/open", post(cortex::post_open))
         .route("/api/cortex/folder", get(cortex::get_folder))
         // Parameter introspection — the surface the agent harness drives.
@@ -47,6 +59,12 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/api/nodes/:id/params",
             get(params::get_node_params).patch(params::set_node_param),
+        )
+        .route("/api/synapses", get(params::list_synapses))
+        .route("/api/synapses/params", get(params::get_all_synapse_params))
+        .route(
+            "/api/synapses/:id/params",
+            get(params::get_synapse_params).patch(params::set_synapse_param),
         )
         .route("/api/vault/ingest", post(vault::post_ingest))
         .route("/api/graph/weights", get(weights::get_weights_snapshot))
