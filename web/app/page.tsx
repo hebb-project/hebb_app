@@ -131,6 +131,7 @@ export default function Home() {
               palette={DEFAULT_PALETTE}
               onSpikeRate={setSpikeRate}
               live={LIVE}
+              onReopen={() => setNetwork(null)}
             />
           </ErrorBoundary>
           <ErrorBoundary>

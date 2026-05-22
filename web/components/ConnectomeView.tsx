@@ -324,6 +324,11 @@ type Props = {
   /** Current to inject on node click (live mode). */
   clickStimulusCurrent?: number;
   clickStimulusDurationMs?: number;
+  /**
+   * Called when the user clicks "Re-open from disk" in the empty-network
+   * banner. Only shown for folder-backed networks (live mode) with 0 nodes.
+   */
+  onReopen?: () => void;
 };
 
 export function ConnectomeView({
@@ -337,6 +342,7 @@ export function ConnectomeView({
   cortexWs,
   clickStimulusCurrent = 40,
   clickStimulusDurationMs = 400,
+  onReopen,
 }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -352,6 +358,9 @@ export function ConnectomeView({
   const [buildStatus, setBuildStatus] = useState("click empty space to add · drag node to node to connect");
   const [graphRevision, setGraphRevision] = useState(0);
   const [fetchFailed, setFetchFailed] = useState(false);
+  // True once the graph has been fetched at least once and returned 0 nodes.
+  // Cleared as soon as nodes appear (e.g. after a seed or build-mode add).
+  const [graphEmpty, setGraphEmpty] = useState(false);
   const [paramTarget, setParamTarget] = useState<ParamTarget | null>(null);
   const [paramValues, setParamValues] = useState<CortexParams | null>(null);
   const [paramDrafts, setParamDrafts] = useState<Record<string, string>>({});
@@ -579,6 +588,7 @@ export function ConnectomeView({
         apiGraphRef.current = g;
         setFetchFailed(false);
         setGraphMeta({ nodes: g.nodes.length, edges: g.edges.length });
+        setGraphEmpty(g.nodes.length === 0);
         setGraphRevision((v) => v + 1);
       } catch {
         if (cancelled) return;
@@ -595,6 +605,7 @@ export function ConnectomeView({
     const g = await fetchGraph(cortexHttp);
     apiGraphRef.current = g;
     setGraphMeta({ nodes: g.nodes.length, edges: g.edges.length });
+    setGraphEmpty(g.nodes.length === 0);
     setGraphRevision((v) => v + 1);
   };
 
@@ -1411,6 +1422,76 @@ export function ConnectomeView({
             <span style={{ color: "rgba(125,249,255,0.5)" }}>
               check that the desktop supervisor started · mock graph shown
             </span>
+          </div>
+        )}
+        {graphEmpty && live && !fetchFailed && (
+          <div
+            style={{
+              position: "absolute",
+              top: "50%",
+              left: "50%",
+              transform: "translate(-50%, -50%)",
+              background: "rgba(10,13,18,0.92)",
+              border: "1px solid rgba(125,249,255,0.22)",
+              borderRadius: 8,
+              padding: "24px 28px",
+              fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+              fontSize: 12,
+              color: "rgba(229,231,235,0.8)",
+              zIndex: 10,
+              textAlign: "center",
+              lineHeight: 1.7,
+              maxWidth: 380,
+              pointerEvents: "auto",
+            }}
+          >
+            <div style={{ fontSize: 11, color: "rgba(125,249,255,0.6)", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: 10 }}>
+              empty network · 0 nodes · 0 edges
+            </div>
+            <div style={{ marginBottom: 16, fontSize: 12, color: "rgba(229,231,235,0.6)", lineHeight: 1.6 }}>
+              This cortex folder has no topology yet. Use{" "}
+              <span style={{ color: "rgba(125,249,255,0.9)" }}>build mode</span>{" "}
+              to add neurons manually, or go back to the start screen to seed a starter network.
+            </div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
+              <button
+                className="zoom-btn"
+                style={{
+                  padding: "7px 14px",
+                  border: "1px solid rgba(125,249,255,0.3)",
+                  color: "rgba(125,249,255,0.9)",
+                  background: "rgba(125,249,255,0.06)",
+                  borderRadius: 4,
+                  fontSize: 11,
+                  cursor: "pointer",
+                  pointerEvents: "auto",
+                }}
+                onClick={() => {
+                  setBuildMode(true);
+                  setBuildStatus("click empty space to add · drag node to node to connect");
+                }}
+              >
+                enable build mode
+              </button>
+              {onReopen && (
+                <button
+                  className="zoom-btn"
+                  style={{
+                    padding: "7px 14px",
+                    border: "1px solid rgba(125,249,255,0.15)",
+                    color: "rgba(229,231,235,0.6)",
+                    background: "transparent",
+                    borderRadius: 4,
+                    fontSize: 11,
+                    cursor: "pointer",
+                    pointerEvents: "auto",
+                  }}
+                  onClick={onReopen}
+                >
+                  back to start screen
+                </button>
+              )}
+            </div>
           </div>
         )}
         {live && (
