@@ -8,10 +8,15 @@ import {
   cortexWsUrl,
   createGraphEdge,
   createGraphNode,
+  fetchNodeParams,
   fetchGraph,
+  fetchSynapseParams,
+  patchNodeParam,
+  patchSynapseParam,
   postStimulate,
   type CortexEdge,
   type CortexNode,
+  type CortexParams,
   type CortexSpikeFrame,
   type CortexWeightFrame,
 } from "@/lib/cortex-api";
@@ -61,6 +66,14 @@ type BuildDraft = {
   toX: number;
   toY: number;
 } | null;
+
+type ParamTarget =
+  | { kind: "node"; id: string; label?: string }
+  | { kind: "synapse"; id: string; label?: string };
+
+type HitTarget =
+  | { kind: "node"; id: string; label?: string }
+  | { kind: "synapse"; id: string; label?: string };
 
 type Colors = {
   bg: string;
@@ -257,6 +270,43 @@ function buildFromApi(
   return { nodes, edges, idToIndex, edgeIdToIndex };
 }
 
+function parseParamInput(raw: string, current: unknown): unknown {
+  if (typeof current === "number") {
+    const n = Number(raw);
+    if (!Number.isFinite(n)) throw new Error("expected finite number");
+    return n;
+  }
+  if (typeof current === "boolean") return raw === "true";
+  if (current === null) return raw.trim() ? raw : null;
+  return raw;
+}
+
+function isParamEditable(key: string, value: unknown): boolean {
+  if (key === "id" || key === "pre_id" || key === "post_id") return false;
+  return value === null || ["number", "string", "boolean"].includes(typeof value);
+}
+
+function formatParamValue(value: unknown): string {
+  if (value === null) return "";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+function edgeDistanceSquared(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
+  const vx = bx - ax;
+  const vy = by - ay;
+  const wx = px - ax;
+  const wy = py - ay;
+  const c1 = vx * wx + vy * wy;
+  if (c1 <= 0) return (px - ax) ** 2 + (py - ay) ** 2;
+  const c2 = vx * vx + vy * vy;
+  if (c2 <= c1) return (px - bx) ** 2 + (py - by) ** 2;
+  const t = c1 / c2;
+  const qx = ax + t * vx;
+  const qy = ay + t * vy;
+  return (px - qx) ** 2 + (py - qy) ** 2;
+}
+
 // ── Component ─────────────────────────────────────────────────────────────
 
 type Props = {
@@ -302,6 +352,10 @@ export function ConnectomeView({
   const [buildStatus, setBuildStatus] = useState("click empty space to add · drag node to node to connect");
   const [graphRevision, setGraphRevision] = useState(0);
   const [fetchFailed, setFetchFailed] = useState(false);
+  const [paramTarget, setParamTarget] = useState<ParamTarget | null>(null);
+  const [paramValues, setParamValues] = useState<CortexParams | null>(null);
+  const [paramDrafts, setParamDrafts] = useState<Record<string, string>>({});
+  const [paramStatus, setParamStatus] = useState<string>("select a node or edge");
 
   const colors = useMemo<Colors>(
     () => ({
@@ -335,6 +389,65 @@ export function ConnectomeView({
     buildModeRef.current = buildMode;
     if (!buildMode) buildDraftRef.current = null;
   }, [buildMode]);
+
+  useEffect(() => {
+    if (!live || !paramTarget) {
+      setParamValues(null);
+      setParamDrafts({});
+      setParamStatus(live ? "select a node or edge" : "live mode required");
+      return;
+    }
+    let cancelled = false;
+    setParamStatus("loading params...");
+    const load = async () => {
+      try {
+        const params =
+          paramTarget.kind === "node"
+            ? await fetchNodeParams(paramTarget.id, cortexHttp)
+            : await fetchSynapseParams(paramTarget.id, cortexHttp);
+        if (cancelled) return;
+        setParamValues(params);
+        setParamDrafts(
+          Object.fromEntries(Object.entries(params).map(([key, value]) => [key, formatParamValue(value)])),
+        );
+        setParamStatus("ready");
+      } catch (err) {
+        if (cancelled) return;
+        const message = err instanceof Error ? err.message : String(err);
+        setParamValues(null);
+        setParamDrafts({});
+        setParamStatus(`load failed: ${message}`);
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [live, cortexHttp, paramTarget]);
+
+  const commitParam = async (key: string) => {
+    if (!paramTarget || !paramValues) return;
+    const current = paramValues[key];
+    try {
+      setParamStatus(`saving ${key}...`);
+      const value = parseParamInput(paramDrafts[key] ?? "", current);
+      const after =
+        paramTarget.kind === "node"
+          ? await patchNodeParam(paramTarget.id, key, value, cortexHttp)
+          : await patchSynapseParam(paramTarget.id, key, value, cortexHttp);
+      setParamValues(after);
+      setParamDrafts(
+        Object.fromEntries(Object.entries(after).map(([nextKey, nextValue]) => [nextKey, formatParamValue(nextValue)])),
+      );
+      setParamStatus(`saved ${key}`);
+      if (paramTarget.kind === "synapse" && key === "weight") {
+        pendingWeightsRef.current.set(paramTarget.id, Number(after.weight ?? value));
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setParamStatus(`save failed: ${message}`);
+    }
+  };
 
   // ── Trackpad zoom / pan ───────────────────────────────────────────
   useEffect(() => {
@@ -603,6 +716,48 @@ export function ConnectomeView({
     };
   }, [live, cortexHttp, clickStimulusCurrent, clickStimulusDurationMs]);
 
+  // ── Click to inspect params ───────────────────────────────────────
+  useEffect(() => {
+    if (!live) return;
+    const wrap = wrapRef.current;
+    const canvas = canvasRef.current;
+    if (!wrap || !canvas) return;
+
+    let downX = 0;
+    let downY = 0;
+    let downT = 0;
+    const onDown = (e: MouseEvent) => {
+      if (e.button !== 0) return;
+      downX = e.clientX;
+      downY = e.clientY;
+      downT = performance.now();
+    };
+    const onClick = (e: MouseEvent) => {
+      if (buildModeRef.current) return;
+      const dx = e.clientX - downX;
+      const dy = e.clientY - downY;
+      if (Math.hypot(dx, dy) > 4 || performance.now() - downT > 350) return;
+      const rect = canvas.getBoundingClientRect();
+      const sx = e.clientX - rect.left;
+      const sy = e.clientY - rect.top;
+      const v = viewRef.current;
+      const wx = (sx - v.tx) / v.scale;
+      const wy = (sy - v.ty) / v.scale;
+      const hit = (canvas as unknown as { _inspectHit?: (x: number, y: number) => HitTarget | null })
+        ._inspectHit?.(wx, wy);
+      if (hit) {
+        setParamTarget(hit);
+      }
+    };
+
+    wrap.addEventListener("pointerdown", onDown);
+    wrap.addEventListener("click", onClick);
+    return () => {
+      wrap.removeEventListener("pointerdown", onDown);
+      wrap.removeEventListener("click", onClick);
+    };
+  }, [live]);
+
   // ── Build mode: add nodes and connect edges using existing graph CRUD. ──
   useEffect(() => {
     if (!live) return;
@@ -762,7 +917,7 @@ export function ConnectomeView({
     };
     resize();
 
-    // Install hit-tester for the click handler.
+    // Install hit-testers for click handlers.
     (canvas as unknown as { _hitTest?: (x: number, y: number) => string | null })._hitTest =
       (x: number, y: number) => {
         const g = state.graph;
@@ -778,6 +933,47 @@ export function ConnectomeView({
         }
         if (best < 0) return null;
         return g.nodes[best].id ?? null;
+      };
+    (canvas as unknown as { _inspectHit?: (x: number, y: number) => HitTarget | null })._inspectHit =
+      (x: number, y: number) => {
+        const g = state.graph;
+        if (!g) return null;
+        let bestNode = -1;
+        let bestNodeD2 = Infinity;
+        for (const n of g.nodes) {
+          const dx = n.x - x;
+          const dy = n.y - y;
+          const d2 = dx * dx + dy * dy;
+          const r = Math.max(10, n.r * 4);
+          if (d2 < r * r && d2 < bestNodeD2) { bestNode = n.i; bestNodeD2 = d2; }
+        }
+        if (bestNode >= 0) {
+          const n = g.nodes[bestNode];
+          return n.id ? { kind: "node", id: n.id, label: n.label ?? n.id.slice(0, 8) } : null;
+        }
+
+        let bestEdge: GraphEdge | null = null;
+        let bestEdgeD2 = Infinity;
+        for (const e of g.edges) {
+          if (!e.id) continue;
+          const a = g.nodes[e.a];
+          const b = g.nodes[e.b];
+          const d2 = edgeDistanceSquared(x, y, a.x, a.y, b.x, b.y);
+          if (d2 < bestEdgeD2) {
+            bestEdgeD2 = d2;
+            bestEdge = e;
+          }
+        }
+        if (bestEdge && bestEdgeD2 < 100 / (viewRef.current.scale ** 2)) {
+          const a = g.nodes[bestEdge.a];
+          const b = g.nodes[bestEdge.b];
+          return {
+            kind: "synapse",
+            id: bestEdge.id!,
+            label: `${a.label ?? a.id?.slice(0, 8) ?? "?"} → ${b.label ?? b.id?.slice(0, 8) ?? "?"}`,
+          };
+        }
+        return null;
       };
 
     const ro = new ResizeObserver(resize);
@@ -1216,6 +1412,142 @@ export function ConnectomeView({
               check that the desktop supervisor started · mock graph shown
             </span>
           </div>
+        )}
+        {live && (
+          <aside
+            style={{
+              position: "absolute",
+              top: 58,
+              right: 18,
+              width: 320,
+              maxHeight: "calc(100% - 120px)",
+              overflow: "hidden",
+              background: "linear-gradient(180deg, rgba(13,17,23,0.94), rgba(10,13,18,0.88))",
+              border: "1px solid rgba(125,249,255,0.18)",
+              borderRadius: 10,
+              boxShadow: "0 18px 70px rgba(0,0,0,0.45)",
+              color: "rgba(229,231,235,0.9)",
+              zIndex: 9,
+              pointerEvents: "auto",
+            }}
+          >
+            <div
+              className="mono"
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: 12,
+                padding: "12px 14px",
+                borderBottom: "1px solid rgba(125,249,255,0.12)",
+                fontSize: 11,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+              }}
+            >
+              <span>{paramTarget ? `${paramTarget.kind} params` : "parameter panel"}</span>
+              <button
+                className="zoom-btn"
+                onClick={() => setParamTarget(null)}
+                title="Clear selection"
+              >
+                clear
+              </button>
+            </div>
+            <div style={{ padding: 14, overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
+              {paramTarget ? (
+                <>
+                  <div style={{ marginBottom: 10 }}>
+                    <div style={{ fontSize: 13, fontWeight: 650 }}>
+                      {paramTarget.label ?? paramTarget.id.slice(0, 8)}
+                    </div>
+                    <div className="mono" style={{ fontSize: 10, color: "rgba(125,249,255,0.55)", marginTop: 3 }}>
+                      {paramTarget.id}
+                    </div>
+                    <div className="mono" style={{ fontSize: 10, color: paramStatus.startsWith("save failed") || paramStatus.startsWith("load failed") ? "rgba(255,93,143,0.9)" : "rgba(255,255,255,0.45)", marginTop: 8 }}>
+                      {paramStatus}
+                    </div>
+                  </div>
+                  {paramValues ? (
+                    <div style={{ display: "grid", gap: 8 }}>
+                      {Object.entries(paramValues).map(([key, value]) => {
+                        const editable = isParamEditable(key, value);
+                        return (
+                          <label
+                            key={key}
+                            style={{
+                              display: "grid",
+                              gridTemplateColumns: "112px 1fr auto",
+                              alignItems: "center",
+                              gap: 8,
+                              fontSize: 11,
+                            }}
+                          >
+                            <span className="mono" style={{ color: editable ? "rgba(229,231,235,0.78)" : "rgba(229,231,235,0.34)" }}>
+                              {key}
+                            </span>
+                            {typeof value === "boolean" ? (
+                              <select
+                                disabled={!editable}
+                                value={paramDrafts[key] ?? String(value)}
+                                onChange={(e) => setParamDrafts((drafts) => ({ ...drafts, [key]: e.target.value }))}
+                                style={{
+                                  minWidth: 0,
+                                  background: "rgba(3,7,18,0.8)",
+                                  border: "1px solid rgba(125,249,255,0.18)",
+                                  borderRadius: 6,
+                                  color: "rgba(229,231,235,0.9)",
+                                  padding: "6px 7px",
+                                  fontSize: 11,
+                                }}
+                              >
+                                <option value="true">true</option>
+                                <option value="false">false</option>
+                              </select>
+                            ) : (
+                              <input
+                                disabled={!editable}
+                                value={paramDrafts[key] ?? formatParamValue(value)}
+                                onChange={(e) => setParamDrafts((drafts) => ({ ...drafts, [key]: e.target.value }))}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" && editable) void commitParam(key);
+                                }}
+                                style={{
+                                  minWidth: 0,
+                                  background: editable ? "rgba(3,7,18,0.8)" : "rgba(3,7,18,0.35)",
+                                  border: "1px solid rgba(125,249,255,0.18)",
+                                  borderRadius: 6,
+                                  color: editable ? "rgba(229,231,235,0.9)" : "rgba(229,231,235,0.42)",
+                                  padding: "6px 7px",
+                                  fontSize: 11,
+                                  fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                                }}
+                              />
+                            )}
+                            <button
+                              className="zoom-btn"
+                              disabled={!editable || (paramDrafts[key] ?? formatParamValue(value)) === formatParamValue(value)}
+                              onClick={() => void commitParam(key)}
+                              title={editable ? "Apply parameter" : "Read-only parameter"}
+                            >
+                              set
+                            </button>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="mono" style={{ color: "rgba(255,255,255,0.42)", fontSize: 11 }}>
+                      no parameters loaded
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="mono" style={{ color: "rgba(255,255,255,0.42)", fontSize: 11, lineHeight: 1.6 }}>
+                  click a neuron or synapse to inspect live parameters. Enter commits a field; `set` applies one field.
+                </div>
+              )}
+            </div>
+          </aside>
         )}
         <div className="connectome-overlay">
           <div className="overlay-top">
