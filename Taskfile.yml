@@ -270,9 +270,14 @@ tasks:
   desktop:dev:
     desc: Run the Tauri shell (boots Next dev server + opens a webview window)
     dir: desktop
-    deps: [desktop:install, web:install]
+    deps: [desktop:install, web:install, core:build-dev]
     cmds:
       - npm run dev
+
+  core:build-dev:
+    desc: Build the Rust core debug binary used by desktop:dev
+    cmds:
+      - cargo build -p core
 
   desktop:build:
     desc: Build a desktop bundle (release artifacts under desktop/src-tauri/target/release)
