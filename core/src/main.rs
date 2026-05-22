@@ -15,6 +15,7 @@ use diesel::prelude::*;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
+mod agent;
 mod api;
 mod chat;
 mod config;
