@@ -60,11 +60,13 @@ pub async fn post_open(
     Json(body): Json<OpenBody>,
 ) -> CoreResult<Json<serde_json::Value>> {
     let folder = PathBuf::from(body.folder);
-    let summary = s
-        .engine
-        .open(folder)
-        .await
-        .map_err(CoreError::EngineOffline)?;
+    let summary = s.engine.open(folder).await.map_err(|msg| {
+        if msg == "engine offline" || msg == "engine dropped reply" {
+            CoreError::EngineOffline(msg)
+        } else {
+            CoreError::BadRequest(msg)
+        }
+    })?;
     Ok(ok(
         serde_json::to_value(summary).unwrap_or(serde_json::Value::Null)
     ))
