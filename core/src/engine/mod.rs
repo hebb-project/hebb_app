@@ -165,6 +165,15 @@ pub enum EngineCommand {
     FlushWeightsToOpenFolder {
         reply: oneshot::Sender<Result<Option<usize>, String>>,
     },
+    /// Snapshot every neuron's dynamic state and persist it to
+    /// `state/{type}/latest.json` via the open `Cortex` handle.
+    /// Returns `Ok(None)` when no folder is open (engine is running on
+    /// transient state). The number returned on success is the count
+    /// of neuron records written — useful for logging "saved state
+    /// for N neurons" on shutdown without a second round-trip.
+    SaveStateToOpenFolder {
+        reply: oneshot::Sender<Result<Option<usize>, String>>,
+    },
 }
 
 /// Returned by `AddNeuronToFolder` — enough fields to render a
@@ -502,6 +511,19 @@ impl SimHandle {
             .map_err(|_| "engine offline".to_string())?;
         rx.await.map_err(|_| "engine dropped reply".to_string())?
     }
+
+    /// Persist the current neuron dynamic state to the open `.cortex/`
+    /// folder. `Ok(Some(n))` is the count of neuron records written;
+    /// `Ok(None)` means no folder is open and the caller should treat
+    /// the request as a no-op. Intended for graceful-shutdown flushes.
+    pub async fn save_state_to_open_folder(&self) -> Result<Option<usize>, String> {
+        let (tx, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(EngineCommand::SaveStateToOpenFolder { reply: tx })
+            .await
+            .map_err(|_| "engine offline".to_string())?;
+        rx.await.map_err(|_| "engine dropped reply".to_string())?
+    }
 }
 
 /// Spawn the engine task. Returns a handle plus a join handle for
@@ -776,6 +798,20 @@ pub fn spawn_engine(tick_hz: u32) -> (SimHandle, tokio::task::JoinHandle<()>) {
                                     let n = snap.len();
                                     cortex
                                         .persist_weights(snap)
+                                        .map(|_| Some(n))
+                                        .map_err(|e| e.to_string())
+                                }
+                            };
+                            let _ = reply.send(result);
+                        }
+                        EngineCommand::SaveStateToOpenFolder { reply } => {
+                            let result = match current_cortex.as_ref() {
+                                None => Ok(None),
+                                Some(cortex) => {
+                                    let snap = engine.snapshot_neuron_state();
+                                    let n = snap.len();
+                                    cortex
+                                        .persist_state(snap)
                                         .map(|_| Some(n))
                                         .map_err(|e| e.to_string())
                                 }
@@ -1291,6 +1327,191 @@ mod tests {
 
         std::fs::remove_dir_all(&root).ok();
     }
+
+    /// Open → mutate neuron param via set_node_param → save state →
+    /// drop engine → reopen with fresh engine → the mutated v must
+    /// survive. Anchors the warm-resume contract from
+    /// vault/ideas/runtime-state-persistence-v1.md.
+    #[tokio::test]
+    async fn state_save_then_reopen_round_trip() {
+        use cortex_snn::format::topology::{NeuronSpec, SynapseSpec, TopologyDefaults};
+        use cortex_snn::CreateOptions;
+        use std::time::SystemTime;
+
+        let nanos = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("core-state-roundtrip-{nanos}"));
+        cortex_snn::Cortex::create(
+            &root,
+            CreateOptions {
+                name: "StateRT".into(),
+                cortex_type: "lif".into(),
+                source_root: root.display().to_string(),
+                now_rfc3339: "2026-05-22T00:00:00Z".into(),
+                defaults: TopologyDefaults {
+                    neuron: NeuronSpec::lif(),
+                    synapse: SynapseSpec::stdp(),
+                },
+                hh_config: None,
+            },
+        )
+        .unwrap();
+
+        // Engine #1: open, add a neuron, drive its membrane to a non-
+        // default value, save state, drop.
+        let (h1, _j1) = spawn_engine(1000);
+        h1.open(root.clone()).await.unwrap();
+        let n = h1
+            .add_neuron_to_folder("n".into(), serde_json::json!({}))
+            .await
+            .unwrap();
+        let target_v = -55.5_f64;
+        h1.set_node_param(n.id, "v".into(), serde_json::json!(target_v))
+            .await
+            .unwrap();
+        let written = h1.save_state_to_open_folder().await.unwrap();
+        assert_eq!(
+            written,
+            Some(1),
+            "save_state should report one persisted neuron"
+        );
+        drop(h1);
+
+        // Engine #2: reopen and assert the membrane voltage survived
+        // the restart via state/{type}/latest.json.
+        let (h2, _j2) = spawn_engine(1000);
+        let summary = h2.open(root.clone()).await.unwrap();
+        assert_eq!(summary.n_nodes, 1);
+        let restored = h2.get_node_params(n.id).await.unwrap().unwrap();
+        let got_v = restored["v"].as_f64().expect("v in params");
+        assert!(
+            (got_v - target_v).abs() < 1e-6,
+            "membrane voltage should round-trip; got {got_v}, want {target_v}",
+        );
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// Saving state with no folder open must be a no-op that returns
+    /// Ok(None), mirroring FlushWeightsToOpenFolder's transient-state
+    /// contract. The shutdown hook depends on this — it can't know
+    /// whether the engine was hydrated from a folder.
+    #[tokio::test]
+    async fn save_state_without_open_is_noop() {
+        let (h, _j) = spawn_engine(1000);
+        let res = h.save_state_to_open_folder().await.unwrap();
+        assert_eq!(res, None);
+    }
+
+    /// Opening a folder whose state file declares the wrong cortex_type
+    /// must fail closed — silently overlaying HH state onto an LIF
+    /// network would corrupt without diagnosis.
+    #[tokio::test]
+    async fn open_rejects_mismatched_state_cortex_type() {
+        use cortex_snn::format::state::StateFile;
+        use cortex_snn::format::topology::{NeuronSpec, SynapseSpec, TopologyDefaults};
+        use cortex_snn::CreateOptions;
+        use std::time::SystemTime;
+
+        let nanos = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("core-state-mismatch-{nanos}"));
+        cortex_snn::Cortex::create(
+            &root,
+            CreateOptions {
+                name: "Mismatch".into(),
+                cortex_type: "lif".into(),
+                source_root: root.display().to_string(),
+                now_rfc3339: "2026-05-22T00:00:00Z".into(),
+                defaults: TopologyDefaults {
+                    neuron: NeuronSpec::lif(),
+                    synapse: SynapseSpec::stdp(),
+                },
+                hh_config: None,
+            },
+        )
+        .unwrap();
+
+        // Hand-write a state file claiming to be HH — write it to the
+        // LIF folder's state path. Open must refuse.
+        let bogus = StateFile::empty("hh");
+        let bytes = bogus.to_json_bytes().unwrap();
+        let state_path =
+            cortex_snn::disk::state_path(&root, &bogus.cortex_type);
+        std::fs::create_dir_all(state_path.parent().unwrap()).unwrap();
+        std::fs::write(&state_path, bytes).unwrap();
+        // The state path the LIF reader actually consults — copy too.
+        let lif_state_path = cortex_snn::disk::state_path(&root, "lif");
+        std::fs::create_dir_all(lif_state_path.parent().unwrap()).unwrap();
+        let mut bad = StateFile::empty("hh");
+        bad.neurons.insert(
+            Uuid::new_v4(),
+            serde_json::json!({"v": -60.0}),
+        );
+        std::fs::write(&lif_state_path, bad.to_json_bytes().unwrap()).unwrap();
+
+        let (h, _j) = spawn_engine(1000);
+        let err = h.open(root.clone()).await.unwrap_err();
+        assert!(
+            err.contains("cortex_type"),
+            "expected mismatch error, got: {err}",
+        );
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// State for a neuron id that's no longer in topology must be
+    /// silently skipped on open (warn, don't error). v1 tolerates this
+    /// drift so a topology edit + reopen doesn't trip the user.
+    #[tokio::test]
+    async fn open_tolerates_state_for_deleted_node() {
+        use cortex_snn::format::state::StateFile;
+        use cortex_snn::format::topology::{NeuronSpec, SynapseSpec, TopologyDefaults};
+        use cortex_snn::CreateOptions;
+        use std::time::SystemTime;
+
+        let nanos = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("core-state-orphan-{nanos}"));
+        cortex_snn::Cortex::create(
+            &root,
+            CreateOptions {
+                name: "Orphan".into(),
+                cortex_type: "lif".into(),
+                source_root: root.display().to_string(),
+                now_rfc3339: "2026-05-22T00:00:00Z".into(),
+                defaults: TopologyDefaults {
+                    neuron: NeuronSpec::lif(),
+                    synapse: SynapseSpec::stdp(),
+                },
+                hh_config: None,
+            },
+        )
+        .unwrap();
+
+        // Write state referencing a neuron that doesn't exist in topology.
+        let mut s = StateFile::empty("lif");
+        s.neurons
+            .insert(Uuid::new_v4(), serde_json::json!({"v": -60.0}));
+        let path = cortex_snn::disk::state_path(&root, "lif");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, s.to_json_bytes().unwrap()).unwrap();
+
+        let (h, _j) = spawn_engine(1000);
+        let summary = h
+            .open(root.clone())
+            .await
+            .expect("orphan state should not fail open");
+        assert_eq!(summary.n_nodes, 0);
+
+        std::fs::remove_dir_all(&root).ok();
+    }
 }
 
 /// Open a `.cortex/` folder via the substrate's [`cortex_snn::Cortex`]
@@ -1362,6 +1583,50 @@ fn open_folder_into_engine(
         // Find the edge's pre/post from topology so we can reissue.
         if let Some(spec) = topology.edges.iter().find(|te| te.id == edge_id) {
             engine.add_edge(edge_id, spec.pre, spec.post, w);
+        }
+    }
+
+    // Apply persisted dynamic state on top of impl defaults. Missing
+    // state file is fine — fresh / never-shut-down folders don't have
+    // one. A present file with a `cortex_type` that disagrees with the
+    // metadata is a hard error — overlaying HH state onto an LIF
+    // network would silently corrupt; refuse instead.
+    if let Some(state) = cortex.load_state().map_err(|e| e.to_string())? {
+        if state.cortex_type != metadata.cortex_type {
+            return Err(format!(
+                "state file declares cortex_type '{}' but metadata says '{}' \
+                 in folder {}",
+                state.cortex_type,
+                metadata.cortex_type,
+                folder.display(),
+            ));
+        }
+        let mut skipped_unknown_keys = 0usize;
+        let mut missing_nodes = 0usize;
+        for (id, value) in &state.neurons {
+            if !topology.nodes.iter().any(|n| n.id == *id) {
+                // State for a deleted node — warn-and-skip, don't
+                // error. v1 intentionally tolerates topology drift.
+                missing_nodes += 1;
+                continue;
+            }
+            skipped_unknown_keys += engine
+                .restore_neuron_state(*id, value)
+                .map_err(|e| e.to_string())?;
+        }
+        if missing_nodes > 0 {
+            tracing::warn!(
+                folder = %folder.display(),
+                missing = missing_nodes,
+                "state file references nodes no longer in topology; skipped"
+            );
+        }
+        if skipped_unknown_keys > 0 {
+            tracing::debug!(
+                folder = %folder.display(),
+                skipped = skipped_unknown_keys,
+                "ignored unknown state fields (forward-compat)"
+            );
         }
     }
 
