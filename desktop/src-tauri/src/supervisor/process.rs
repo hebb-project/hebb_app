@@ -4,12 +4,6 @@
 //! `tracing` (so the existing log infrastructure handles aggregation),
 //! tracks lifecycle state behind a mutex, and exposes a stable
 //! `ProcessStatus` shape for IPC consumption.
-//!
-//! Auto-restart on crash is **not** implemented in this scaffold — the
-//! state machine has a `Failed` terminal variant but the supervisor
-//! currently relies on the user manually restarting via the (future)
-//! diagnostics pane. Once we have real telemetry on which subprocess
-//! crashes look like, the restart policy will gain backoff + jitter.
 
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -18,18 +12,6 @@ use std::sync::Arc;
 use serde::Serialize;
 use tokio::process::Command;
 use tokio::sync::{oneshot, Mutex};
-
-/// What to do when the child exits.
-///
-/// Today only `Never` is honored by the supervisor — `OnFailure` and
-/// `Always` are reserved for the follow-up that adds the restart loop.
-#[derive(Debug, Clone, Copy, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum RestartPolicy {
-    Never,
-    OnFailure,
-    Always,
-}
 
 /// Public lifecycle state. Serialized to the frontend as `{ "state":
 /// "running", "pid": 1234 }` etc., so the diagnostics UI can render
@@ -58,7 +40,6 @@ pub struct ProcessConfig {
     pub args: Vec<String>,
     pub env: Vec<(String, String)>,
     pub cwd: Option<PathBuf>,
-    pub restart: RestartPolicy,
 }
 
 pub struct ManagedProcess {
@@ -100,7 +81,11 @@ impl ManagedProcess {
         }
 
         let mut child = cmd.spawn().map_err(|e| {
-            anyhow::anyhow!("spawn {}: {e} (program: {})", self.cfg.name, self.cfg.program)
+            anyhow::anyhow!(
+                "spawn {}: {e} (program: {})",
+                self.cfg.name,
+                self.cfg.program
+            )
         })?;
         let pid = child.id().unwrap_or(0);
 
@@ -140,7 +125,9 @@ impl ManagedProcess {
                 }
                 Err(e) => {
                     tracing::error!(name = %name, error = %e, "wait() failed");
-                    *state.lock().await = State::Failed { reason: e.to_string() };
+                    *state.lock().await = State::Failed {
+                        reason: e.to_string(),
+                    };
                 }
             }
         });
