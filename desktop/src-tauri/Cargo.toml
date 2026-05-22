@@ -39,7 +39,6 @@ postgresql_embedded = { version = "0.18", default-features = true }
 # Postgres URL parsing for the External provider's reachability check.
 url = "2"
 tauri-plugin-dialog = "2.7.1"
-cortex-snn = { path = "../../cortex-snn", features = ["disk"] }
 
 # Timestamps + stable ids for `.cortex/metadata.json`. `chrono` for
 # RFC 3339 strings (the public JSON format); `uuid` v4 for the network
