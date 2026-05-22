@@ -9,6 +9,15 @@ type Props = {
   networkName: string;
   activeFolder: string | null;
   onOpenStart: () => void;
+  /**
+   * When set, a "re-open" button is shown next to the folder readout.
+   * Clicking it re-opens the current `.cortex/` folder from disk so the
+   * user can force-refresh after external changes without going back to
+   * the start screen.
+   */
+  onReopenFolder?: () => void;
+  /** True while a re-open is in progress — disables the button. */
+  reopenPending?: boolean;
 };
 
 function shortFolder(path: string | null): string {
@@ -25,9 +34,15 @@ export function Header({
   networkName,
   activeFolder,
   onOpenStart,
+  onReopenFolder,
+  reopenPending = false,
 }: Props) {
   const preset = STATE_PRESETS[stateKey];
   const online = stateKey !== "offline";
+  // Show the re-open button only for folder-backed networks (activeFolder
+  // is set and not the "transient" placeholder core uses for non-folder
+  // sessions).
+  const isFolderBacked = Boolean(activeFolder) && activeFolder !== "transient";
   return (
     <header className="header">
       <div className="header-left">
@@ -58,6 +73,21 @@ export function Header({
           <span className="readout-k">folder</span>
           <span className="readout-v">{shortFolder(activeFolder)}</span>
         </span>
+        {isFolderBacked && onReopenFolder && (
+          <>
+            <span className="sep">/</span>
+            <button
+              className="header-link mono"
+              type="button"
+              disabled={reopenPending}
+              title="Re-open this .cortex/ folder from disk to pick up external changes"
+              onClick={onReopenFolder}
+              style={{ opacity: reopenPending ? 0.5 : 1 }}
+            >
+              {reopenPending ? "re-opening…" : "re-open"}
+            </button>
+          </>
+        )}
         <span className="sep">/</span>
         <span className="readout">
           <span className="readout-k">ws</span>
