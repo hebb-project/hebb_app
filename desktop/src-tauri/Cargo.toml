@@ -1,8 +1,8 @@
 [package]
-name = "long-horizon-cortex-desktop"
+name = "Cortex"
 version = "0.0.1"
 edition = "2021"
-description = "Tauri 2 desktop shell for Cortex"
+description = "Cortex visualizer"
 publish = false
 
 # `lib` produces the library half (so `main.rs` can call into `lib.rs::run`
