@@ -77,6 +77,11 @@ async fn main() -> anyhow::Result<()> {
     let chat_encoder = chat::make_encoder();
     tracing::info!(encoder = chat_encoder.name(), "chat encoder ready");
 
+    // Clone the engine handle before it moves into AppState so the
+    // post-axum shutdown hook can still issue commands after the
+    // router stops accepting traffic.
+    let engine_for_shutdown = engine.clone();
+
     let state = AppState {
         pool,
         engine,
@@ -95,7 +100,28 @@ async fn main() -> anyhow::Result<()> {
         .await
         .context("serve loop")?;
 
-    tracing::info!("axum exited; waiting for engine task to drain");
+    tracing::info!("axum exited; flushing runtime state to open folder");
+    // Best-effort save of neuron dynamic state to the open `.cortex/`
+    // folder (no-op when running on transient state). Errors are
+    // logged, not propagated — a save failure should not mask the
+    // shutdown reason. See vault/ideas/runtime-state-persistence-v1.md.
+    match engine_for_shutdown.save_state_to_open_folder().await {
+        Ok(Some(n)) => tracing::info!(neurons = n, "state flushed to disk"),
+        Ok(None) => tracing::debug!("no folder open; skipping state flush"),
+        Err(e) => tracing::warn!(error = %e, "state flush failed on shutdown"),
+    }
+    // Mirror the same best-effort flush for weights. The periodic
+    // persister writes on its own cadence, but it targets Postgres
+    // and folder-mode weight flushes are gated by the engine actor —
+    // we want to guarantee `latest.cwt` reflects the moment of exit.
+    match engine_for_shutdown.flush_weights_to_open_folder().await {
+        Ok(Some(n)) => tracing::info!(edges = n, "weights flushed to disk"),
+        Ok(None) => tracing::debug!("no folder open; skipping weight flush"),
+        Err(e) => tracing::warn!(error = %e, "weight flush failed on shutdown"),
+    }
+
+    tracing::info!("waiting for engine task to drain");
+    drop(engine_for_shutdown);
     drop(engine_join); // engine task exits when cmd_tx drops; safe to detach.
 
     Ok(())
