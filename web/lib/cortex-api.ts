@@ -91,11 +91,37 @@ export function cortexWeightsWsUrl(override?: string): string {
   return http.replace(/^http/, "ws") + "/ws/weights";
 }
 
+type CortexErrorBody = {
+  data: unknown;
+  error: null | { code?: string; message?: string } | unknown;
+};
+
 async function unwrap<T>(r: Response): Promise<T> {
-  if (!r.ok) throw new Error(`cortex http ${r.status}`);
-  const body = (await r.json()) as { data: T; error: unknown };
-  if (body.error) throw new Error(`cortex error: ${JSON.stringify(body.error)}`);
-  return body.data;
+  let body: CortexErrorBody | null = null;
+  try {
+    body = (await r.json()) as CortexErrorBody;
+  } catch {
+    // Keep the status-only fallback for non-JSON failures.
+  }
+
+  if (!r.ok) {
+    const error = body?.error;
+    const message =
+      error && typeof error === "object" && "message" in error
+        ? String((error as { message?: unknown }).message)
+        : `cortex http ${r.status}`;
+    throw new Error(message);
+  }
+  if (body?.error) {
+    const error = body.error;
+    const message =
+      error && typeof error === "object" && "message" in error
+        ? String((error as { message?: unknown }).message)
+        : JSON.stringify(error);
+    throw new Error(message);
+  }
+  if (!body) throw new Error("cortex response was not JSON");
+  return body.data as T;
 }
 
 export async function fetchGraph(base?: string): Promise<{ nodes: CortexNode[]; edges: CortexEdge[] }> {
@@ -238,7 +264,10 @@ export type CortexFolderStatus = {
  * source of truth.
  */
 function cortexDataFolder(root: string): string {
-  return `${root.replace(/[\\/]+$/, "")}/.cortex`;
+  const trimmed = root.replace(/[\\/]+$/, "");
+  const parts = trimmed.split(/[\\/]/);
+  if (parts.at(-1) === ".cortex") return trimmed;
+  return `${trimmed}/.cortex`;
 }
 
 export async function openCortexFolder(

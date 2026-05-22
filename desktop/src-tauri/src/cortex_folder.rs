@@ -40,6 +40,7 @@
 use std::path::{Path, PathBuf};
 
 use chrono::{SecondsFormat, Utc};
+use cortex_snn::disk::{topology_path, write_topology};
 use cortex_snn::format::topology::{NeuronSpec, SynapseSpec, TopologyDefaults};
 use cortex_snn::{Cortex, CreateOptions};
 use serde::{Deserialize, Serialize};
@@ -317,6 +318,17 @@ pub async fn init_cortex_folder(
         };
         write_metadata(&meta_path, &metadata).await?;
         tracing::info!(path = %meta_path.display(), cortex_type = %metadata.cortex_type, "wrote cortex metadata");
+
+        let topology_path = topology_path(&cortex);
+        if !matches!(fs::metadata(&topology_path).await, Ok(m) if m.is_file()) {
+            let defaults = defaults_for_cortex_type(&cortex_type, hh_config.clone())?;
+            let topology = cortex_snn::format::topology::TopologyFile::empty(
+                cortex_type.clone(),
+                defaults,
+            );
+            write_topology(&cortex, &topology)
+                .map_err(|e| format!("writing {}: {}", topology_path.display(), e))?;
+        }
     }
 
     // Subdirs reserved for future weight + embedding caches. The
@@ -407,6 +419,24 @@ mod tests {
             .join("weights")
             .join("hh");
         assert!(weights_hh.is_dir(), "weights/hh/ should exist");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn init_repairs_missing_topology_when_metadata_exists() {
+        let dir = tempdir();
+        let p = dir.to_string_lossy().to_string();
+        init_cortex_folder(p.clone(), "HH".into(), "hh".into(), None)
+            .await
+            .expect("init");
+        let topology = dir.join(".cortex").join("topology.json");
+        std::fs::remove_file(&topology).unwrap();
+
+        init_cortex_folder(p, "HH".into(), "hh".into(), None)
+            .await
+            .expect("repair");
+        assert!(topology.is_file(), "init should restore missing topology.json");
+
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
