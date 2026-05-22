@@ -7,8 +7,8 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Header } from "@/components/Header";
 import { StartScreen, type NetworkRecord } from "@/components/StartScreen";
 import { VaultSearchPanel } from "@/components/VaultSearchPanel";
-import { getCortexFolder } from "@/lib/cortex-api";
-import { onDesktopMenuAction } from "@/lib/desktop";
+import { getCortexFolder, openCortexFolder, type OpenCortexResponse } from "@/lib/cortex-api";
+import { onDesktopMenuAction, type CortexTypeSlug } from "@/lib/desktop";
 import { DEFAULT_PALETTE, type StateKey } from "@/lib/state";
 
 // ConnectomeView is canvas-only with two WS subscriptions and an rAF
@@ -51,6 +51,7 @@ export default function Home() {
   const [spikeRate, setSpikeRate] = useState(0);
   const [uptime, setUptime] = useState(347);
   const [activeFolder, setActiveFolder] = useState<string | null>(null);
+  const [reopenPending, setReopenPending] = useState(false);
 
   useEffect(() => {
     if (stateKey === "offline") return;
@@ -94,6 +95,46 @@ export default function Home() {
     };
   }, [network]);
 
+  /**
+   * Re-open the current folder-backed network from disk. This calls
+   * `POST /api/cortex/open` for the network's folder so core re-hydrates
+   * topology + weights without the user navigating back to the start screen.
+   * The ConnectomeView will re-fetch the graph on its own retry loop after
+   * core completes the open.
+   *
+   * Only available for folder-backed (non-demo, non-KG) networks.
+   */
+  async function reopenFolder() {
+    if (!network || network.origin === "demo" || network.cortexType === "knowledge-graph") return;
+    if (reopenPending) return;
+    setReopenPending(true);
+    try {
+      const opened: OpenCortexResponse = await openCortexFolder(network.folderPath);
+      const openedType = opened.cortex_type as CortexTypeSlug | undefined;
+      setNetwork((prev) =>
+        prev
+          ? {
+              ...prev,
+              name: opened.name || prev.name,
+              cortexType: openedType ?? prev.cortexType,
+              origin: openedType ?? prev.origin,
+              nodeEstimate: opened.n_nodes,
+              edgeEstimate: opened.n_edges,
+              hasMetadata: true,
+              lastOpenedAt: new Date().toISOString(),
+            }
+          : prev,
+      );
+      // Refresh activeFolder in case core changed it.
+      const status = await getCortexFolder();
+      setActiveFolder(status.folder);
+    } catch (err) {
+      console.warn("[page] reopenFolder failed", err);
+    } finally {
+      setReopenPending(false);
+    }
+  }
+
   if (!network) {
     return (
       <ErrorBoundary>
@@ -112,6 +153,12 @@ export default function Home() {
           networkName={network.name}
           activeFolder={activeFolder}
           onOpenStart={() => setNetwork(null)}
+          onReopenFolder={
+            network.origin !== "demo" && network.cortexType !== "knowledge-graph"
+              ? () => { void reopenFolder(); }
+              : undefined
+          }
+          reopenPending={reopenPending}
         />
         <div className="cols">
           <ErrorBoundary>
@@ -131,6 +178,7 @@ export default function Home() {
               palette={DEFAULT_PALETTE}
               onSpikeRate={setSpikeRate}
               live={LIVE}
+              onReopen={() => setNetwork(null)}
             />
           </ErrorBoundary>
           <ErrorBoundary>

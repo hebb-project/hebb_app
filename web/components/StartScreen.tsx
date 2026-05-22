@@ -186,8 +186,15 @@ type SeedUiState = {
   seedValue: number;
 };
 
+/**
+ * Fresh LIF/HH networks default to a seeded random topology (32 neurons,
+ * p=0.1) so the user opens into something visible rather than an empty
+ * canvas. The `enabled` flag can be toggled off explicitly to create a
+ * genuinely empty network for advanced use (build-mode or agent-driven
+ * topology construction).
+ */
 const DEFAULT_SEED_UI: SeedUiState = {
-  enabled: false,
+  enabled: true,
   kind: "random",
   n: 32,
   k: 3,
@@ -316,8 +323,10 @@ export function StartScreen({ onOpen }: Props) {
 
     const existing = networks.find((network) => network.folderPath === selected);
     if (existing) {
-      // Re-inspect so the metadata flag reflects the on-disk truth, not
-      // the cached value from when the user first added this folder.
+      // Re-inspect so the metadata flag and topology counts reflect the
+      // on-disk truth rather than cached values from when the folder was
+      // first added. This is what persists nodeEstimate/edgeEstimate from
+      // the actual topology.json.
       const info = await inspectCortexFolder(selected);
       if (info) {
         existing.hasMetadata = info.has_cortex;
@@ -325,6 +334,8 @@ export function StartScreen({ onOpen }: Props) {
           existing.cortexType = info.metadata.cortex_type as CortexTypeSlug;
           existing.origin = existing.cortexType;
         }
+        if (info.node_count !== null) existing.nodeEstimate = info.node_count;
+        if (info.edge_count !== null) existing.edgeEstimate = info.edge_count;
       }
       try {
         await persistAndOpen(existing);
@@ -348,6 +359,10 @@ export function StartScreen({ onOpen }: Props) {
           hasMetadata: true,
           createdAt: info.metadata.created_at ?? new Date().toISOString(),
           lastOpenedAt: new Date().toISOString(),
+          // Persist topology counts so the network list reflects what's
+          // actually in the folder rather than "0 nodes" defaults.
+          nodeEstimate: info.node_count ?? undefined,
+          edgeEstimate: info.edge_count ?? undefined,
         });
       } catch {
         // Status is set by persistAndOpen; keep the start screen active.
@@ -557,117 +572,134 @@ export function StartScreen({ onOpen }: Props) {
             )}
 
             {cortexType !== "knowledge-graph" && (
-              <details
-                className="seed-config"
-                open={seedUi.enabled}
-                onToggle={(e) =>
-                  setSeedUi((s) => ({ ...s, enabled: (e.target as HTMLDetailsElement).open }))
-                }
-              >
-                <summary className="mono">advanced — seed network</summary>
-                <div className="seed-config-body">
-                  <label className="seed-row">
-                    <span className="mono">generator</span>
-                    <select
-                      value={seedUi.kind}
-                      onChange={(e) =>
-                        setSeedUi((s) => ({ ...s, kind: e.target.value as SeedKind }))
-                      }
-                    >
-                      <option value="random">random (Erdős-Rényi)</option>
-                      <option value="ring">ring lattice</option>
-                      <option value="small_world">small-world (Watts-Strogatz)</option>
-                      <option value="layered">layered feed-forward</option>
-                    </select>
-                  </label>
-
-                  {(seedUi.kind === "random" ||
-                    seedUi.kind === "ring" ||
-                    seedUi.kind === "small_world") && (
-                    <label className="seed-row">
-                      <span className="mono">n (neurons)</span>
-                      <input
-                        type="number"
-                        min={2}
-                        value={seedUi.n}
-                        onChange={(e) =>
-                          setSeedUi((s) => ({ ...s, n: Number(e.target.value) }))
-                        }
-                      />
-                    </label>
+              <div className="seed-config">
+                {/* Primary toggle: seed on create (default on). Flipping it
+                    off lets advanced users start with an empty topology for
+                    build-mode or agent-driven construction. */}
+                <label className="seed-toggle-row">
+                  <input
+                    type="checkbox"
+                    checked={seedUi.enabled}
+                    onChange={(e) =>
+                      setSeedUi((s) => ({ ...s, enabled: e.target.checked }))
+                    }
+                  />
+                  <span>seed starter topology on create</span>
+                  {!seedUi.enabled && (
+                    <span className="seed-empty-hint mono">
+                      — starts empty (0 nodes)
+                    </span>
                   )}
+                </label>
 
-                  {seedUi.kind === "random" && (
-                    <label className="seed-row">
-                      <span className="mono">p (edge prob)</span>
-                      <input
-                        type="number"
-                        min={0}
-                        max={1}
-                        step={0.01}
-                        value={seedUi.p}
-                        onChange={(e) =>
-                          setSeedUi((s) => ({ ...s, p: Number(e.target.value) }))
-                        }
-                      />
-                    </label>
-                  )}
+                {seedUi.enabled && (
+                  <details className="seed-advanced">
+                    <summary className="mono">topology options</summary>
+                    <div className="seed-config-body">
+                      <label className="seed-row">
+                        <span className="mono">generator</span>
+                        <select
+                          value={seedUi.kind}
+                          onChange={(e) =>
+                            setSeedUi((s) => ({ ...s, kind: e.target.value as SeedKind }))
+                          }
+                        >
+                          <option value="random">random (Erdős-Rényi)</option>
+                          <option value="ring">ring lattice</option>
+                          <option value="small_world">small-world (Watts-Strogatz)</option>
+                          <option value="layered">layered feed-forward</option>
+                        </select>
+                      </label>
 
-                  {(seedUi.kind === "ring" || seedUi.kind === "small_world") && (
-                    <label className="seed-row">
-                      <span className="mono">k (neighbors each side)</span>
-                      <input
-                        type="number"
-                        min={1}
-                        value={seedUi.k}
-                        onChange={(e) =>
-                          setSeedUi((s) => ({ ...s, k: Number(e.target.value) }))
-                        }
-                      />
-                    </label>
-                  )}
+                      {(seedUi.kind === "random" ||
+                        seedUi.kind === "ring" ||
+                        seedUi.kind === "small_world") && (
+                        <label className="seed-row">
+                          <span className="mono">n (neurons)</span>
+                          <input
+                            type="number"
+                            min={2}
+                            value={seedUi.n}
+                            onChange={(e) =>
+                              setSeedUi((s) => ({ ...s, n: Number(e.target.value) }))
+                            }
+                          />
+                        </label>
+                      )}
 
-                  {seedUi.kind === "small_world" && (
-                    <label className="seed-row">
-                      <span className="mono">p_rewire</span>
-                      <input
-                        type="number"
-                        min={0}
-                        max={1}
-                        step={0.01}
-                        value={seedUi.pRewire}
-                        onChange={(e) =>
-                          setSeedUi((s) => ({ ...s, pRewire: Number(e.target.value) }))
-                        }
-                      />
-                    </label>
-                  )}
+                      {seedUi.kind === "random" && (
+                        <label className="seed-row">
+                          <span className="mono">p (edge prob)</span>
+                          <input
+                            type="number"
+                            min={0}
+                            max={1}
+                            step={0.01}
+                            value={seedUi.p}
+                            onChange={(e) =>
+                              setSeedUi((s) => ({ ...s, p: Number(e.target.value) }))
+                            }
+                          />
+                        </label>
+                      )}
 
-                  {seedUi.kind === "layered" && (
-                    <label className="seed-row">
-                      <span className="mono">layers (csv)</span>
-                      <input
-                        type="text"
-                        value={seedUi.layers}
-                        onChange={(e) =>
-                          setSeedUi((s) => ({ ...s, layers: e.target.value }))
-                        }
-                      />
-                    </label>
-                  )}
+                      {(seedUi.kind === "ring" || seedUi.kind === "small_world") && (
+                        <label className="seed-row">
+                          <span className="mono">k (neighbors each side)</span>
+                          <input
+                            type="number"
+                            min={1}
+                            value={seedUi.k}
+                            onChange={(e) =>
+                              setSeedUi((s) => ({ ...s, k: Number(e.target.value) }))
+                            }
+                          />
+                        </label>
+                      )}
 
-                  <label className="seed-row">
-                    <span className="mono">prng seed</span>
-                    <input
-                      type="number"
-                      value={seedUi.seedValue}
-                      onChange={(e) =>
-                        setSeedUi((s) => ({ ...s, seedValue: Number(e.target.value) }))
-                      }
-                    />
-                  </label>
-                </div>
-              </details>
+                      {seedUi.kind === "small_world" && (
+                        <label className="seed-row">
+                          <span className="mono">p_rewire</span>
+                          <input
+                            type="number"
+                            min={0}
+                            max={1}
+                            step={0.01}
+                            value={seedUi.pRewire}
+                            onChange={(e) =>
+                              setSeedUi((s) => ({ ...s, pRewire: Number(e.target.value) }))
+                            }
+                          />
+                        </label>
+                      )}
+
+                      {seedUi.kind === "layered" && (
+                        <label className="seed-row">
+                          <span className="mono">layers (csv)</span>
+                          <input
+                            type="text"
+                            value={seedUi.layers}
+                            onChange={(e) =>
+                              setSeedUi((s) => ({ ...s, layers: e.target.value }))
+                            }
+                          />
+                        </label>
+                      )}
+
+                      <label className="seed-row">
+                        <span className="mono">prng seed</span>
+                        <input
+                          type="number"
+                          value={seedUi.seedValue}
+                          onChange={(e) =>
+                            setSeedUi((s) => ({ ...s, seedValue: Number(e.target.value) }))
+                          }
+                        />
+                      </label>
+                    </div>
+                  </details>
+                )}
+              </div>
             )}
 
             <div className="start-form">
