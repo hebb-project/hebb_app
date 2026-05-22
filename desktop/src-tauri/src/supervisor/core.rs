@@ -6,7 +6,7 @@
 //! can treat "Ok(())" as "the WS endpoints are accepting connections."
 //!
 //! Binary resolution today is dev-mode: look at the env var
-//! `CORTEX_CORE_BIN`, else walk to `../../core/target/{release,debug}/core`
+//! `CORTEX_CORE_BIN`, else walk to the workspace `target/{debug,release}/core`
 //! from the desktop crate. Production sidecar resolution
 //! (`tauri.conf.json::bundle.externalBin`) lands with COR-87.
 
@@ -119,8 +119,10 @@ fn parse_bind(bind: &str) -> (String, String) {
 }
 
 /// Dev-mode binary resolution. `CORTEX_CORE_BIN` overrides; otherwise
-/// look at `../../core/target/release/core` then `debug/core` relative
-/// to the desktop crate. Production (bundled sidecar) is COR-87.
+/// look at workspace `target/debug/core` before `target/release/core`.
+/// Debug wins in dev because `tauri dev` rebuilds the shell in debug
+/// mode and a stale release core can otherwise shadow fresh source.
+/// Production (bundled sidecar) is COR-87.
 fn resolve_binary() -> anyhow::Result<PathBuf> {
     if let Ok(p) = std::env::var("CORTEX_CORE_BIN") {
         let path = PathBuf::from(p);
@@ -146,7 +148,7 @@ fn resolve_binary() -> anyhow::Result<PathBuf> {
     let bin_name = if cfg!(windows) { "core.exe" } else { "core" };
     let target_roots = [repo_root.join("target"), repo_root.join("core/target")];
     for target_root in &target_roots {
-        for profile in &["release", "debug"] {
+        for profile in &["debug", "release"] {
             let candidate = target_root.join(profile).join(bin_name);
             if candidate.exists() {
                 return Ok(candidate);
