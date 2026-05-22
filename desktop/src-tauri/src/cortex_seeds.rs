@@ -156,9 +156,9 @@ pub async fn seed_cortex_folder(path: String, spec: SeedSpec) -> Result<SeedSumm
 
     // `Cortex::open` does its own validating reads (size guard, JSON
     // depth check, referential integrity). If `topology.json` doesn't
-    // exist yet — which is the common case for a folder that's only
-    // had `init_cortex_folder` called against it — `open` synthesizes
-    // an empty one in memory so `apply_seed` can layer on top.
+    // exist yet — which can happen for folders created by older builds
+    // — `open` synthesizes an empty one in memory so `apply_seed` can
+    // layer on top.
     //
     // `apply_seed` rolls back the in-memory topology on validation
     // failure, so a bad seed leaves disk untouched.
@@ -346,6 +346,9 @@ mod tests {
         let dir = tempdir();
         let p = dir.to_string_lossy().to_string();
         init_lif(&p).await;
+        let canonical = std::fs::canonicalize(&dir).unwrap();
+        let topology_path = canonical.join(".cortex").join("topology.json");
+        let before = std::fs::read_to_string(&topology_path).unwrap();
 
         let err = seed_cortex_folder(
             p.clone(),
@@ -359,15 +362,11 @@ mod tests {
         .expect_err("bad p must be rejected");
         assert!(err.contains("seed") || err.contains("probability"));
 
-        // topology.json must NOT have been written (apply_seed rolls back
-        // on validation failure, and a generator-level rejection happens
-        // before apply_seed at all).
-        let canonical = std::fs::canonicalize(&dir).unwrap();
-        let topology_path = canonical.join(".cortex").join("topology.json");
-        assert!(
-            !topology_path.exists(),
-            "topology.json should not exist after rejected seed"
-        );
+        // topology.json must remain unchanged. A generator-level
+        // rejection happens before apply_seed, and apply_seed rolls back
+        // the in-memory topology on validation failure before writing.
+        let after = std::fs::read_to_string(&topology_path).unwrap();
+        assert_eq!(after, before, "topology.json changed after rejected seed");
 
         std::fs::remove_dir_all(&dir).unwrap();
     }
