@@ -5,6 +5,7 @@ import {
   configureCortex,
   CortexTypeBody,
   ingestVault,
+  OpenCortexResponse,
   openCortexFolder,
 } from "@/lib/cortex-api";
 import {
@@ -123,6 +124,10 @@ function readNetworks(): NetworkRecord[] {
 
 function writeNetworks(networks: NetworkRecord[]) {
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(networks));
+}
+
+function formatOpenError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function shortPath(path: string): string {
@@ -247,31 +252,57 @@ export function StartScreen({ onOpen }: Props) {
     return Boolean(folderPath.trim());
   }, [folderPath, pending]);
 
-  async function persistAndOpen(network: NetworkRecord) {
-    // Non-demo networks split into two regimes today:
-    // - knowledge-graph: still DB-backed; configure + ingest path.
-    // - lif/hh: folder-backed; open the specific `.cortex/` root.
-    // We keep persisting locally even if core is offline so the shell
-    // doesn't lose the user's network list.
-    if (network.origin !== "demo") {
-      if (network.cortexType === "knowledge-graph") {
-        await pushCortexTypeToCore(network.cortexType, network.hhConfig ?? null);
-      } else {
-        try {
-          await openCortexFolder(network.folderPath);
-        } catch (err) {
-          console.warn("openCortexFolder failed; falling back to configure", err);
-          await pushCortexTypeToCore(network.cortexType, network.hhConfig ?? null);
-        }
-      }
-    }
+  function saveNetworkRecord(network: NetworkRecord) {
     const updated = [
       { ...network, lastOpenedAt: new Date().toISOString() },
       ...networks.filter((item) => item.id !== network.id),
     ];
     setNetworks(updated);
     writeNetworks(updated);
-    onOpen(updated[0]);
+    return updated[0];
+  }
+
+  async function persistAndOpen(network: NetworkRecord) {
+    // Non-demo networks split into two regimes today:
+    // - knowledge-graph: still DB-backed; configure + ingest path.
+    // - lif/hh: folder-backed; opening the specific `.cortex/` root is
+    //   required. Falling back to bare configure would detach core from
+    //   the folder and make multiple local networks appear shared.
+    let opened: OpenCortexResponse | null = null;
+    if (network.origin !== "demo") {
+      if (network.cortexType === "knowledge-graph") {
+        await pushCortexTypeToCore(network.cortexType, network.hhConfig ?? null);
+      } else {
+        try {
+          opened = await openCortexFolder(network.folderPath);
+        } catch (err) {
+          const message = formatOpenError(err);
+          console.warn("openCortexFolder failed", err);
+          setStatus(`Could not open folder-backed ${network.cortexType} cortex: ${message}`);
+          throw err;
+        }
+      }
+    }
+
+    const openedType = opened?.cortex_type as CortexTypeSlug | undefined;
+    const hydrated: NetworkRecord = opened
+      ? {
+          ...network,
+          name: opened.name || network.name,
+          cortexType: openedType ?? network.cortexType,
+          origin: openedType ?? network.origin,
+          nodeEstimate: opened.n_nodes,
+          edgeEstimate: opened.n_edges,
+          hasMetadata: true,
+        }
+      : network;
+    const saved = saveNetworkRecord(hydrated);
+    if (opened) {
+      setStatus(
+        `Opened ${opened.cortex_type.toUpperCase()} cortex · ${opened.n_nodes} nodes · ${opened.n_edges} edges`,
+      );
+    }
+    onOpen(saved);
   }
 
   async function chooseFolder() {
@@ -295,24 +326,32 @@ export function StartScreen({ onOpen }: Props) {
           existing.origin = existing.cortexType;
         }
       }
-      await persistAndOpen(existing);
+      try {
+        await persistAndOpen(existing);
+      } catch {
+        // Status is set by persistAndOpen; keep the start screen active.
+      }
       return;
     }
 
     const info = await inspectCortexFolder(selected);
     if (info?.has_cortex && info.metadata) {
       const detected = (info.metadata.cortex_type as CortexTypeSlug) ?? "lif";
-      await persistAndOpen({
-        id: info.metadata.id ?? `existing-${Date.now()}`,
-        name: info.metadata.name ?? `${nameFromPath(selected, "Existing")} Cortex`,
-        origin: detected,
-        cortexType: detected,
-        hhConfig: info.metadata.hh_config ?? null,
-        folderPath: selected,
-        hasMetadata: true,
-        createdAt: info.metadata.created_at ?? new Date().toISOString(),
-        lastOpenedAt: new Date().toISOString(),
-      });
+      try {
+        await persistAndOpen({
+          id: info.metadata.id ?? `existing-${Date.now()}`,
+          name: info.metadata.name ?? `${nameFromPath(selected, "Existing")} Cortex`,
+          origin: detected,
+          cortexType: detected,
+          hhConfig: info.metadata.hh_config ?? null,
+          folderPath: selected,
+          hasMetadata: true,
+          createdAt: info.metadata.created_at ?? new Date().toISOString(),
+          lastOpenedAt: new Date().toISOString(),
+        });
+      } catch {
+        // Status is set by persistAndOpen; keep the start screen active.
+      }
       return;
     }
 
@@ -417,9 +456,13 @@ export function StartScreen({ onOpen }: Props) {
 
       await persistAndOpen(network);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      setStatus(`Network shell created; core call failed: ${message}`);
-      await persistAndOpen(network);
+      const message = formatOpenError(error);
+      if (network.hasMetadata) {
+        saveNetworkRecord(network);
+        setStatus(`Network folder was saved, but core could not open it: ${message}`);
+      } else {
+        setStatus(`Network creation failed: ${message}`);
+      }
     } finally {
       setPending(false);
     }
@@ -447,7 +490,13 @@ export function StartScreen({ onOpen }: Props) {
                 <button
                   key={network.id}
                   className="network-card"
-                  onClick={() => { void persistAndOpen(network); }}
+                  onClick={() => {
+                    void persistAndOpen(network).catch(() => {
+                      // `persistAndOpen` already surfaces the actionable
+                      // status. Stay on the start screen instead of
+                      // showing stale graph state from the previous folder.
+                    });
+                  }}
                 >
                   <div className="network-card-top mono">
                     <span>{network.cortexType.replace("-", " ")}</span>

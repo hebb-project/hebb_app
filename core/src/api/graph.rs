@@ -29,6 +29,22 @@ pub async fn list_nodes(
     State(s): State<AppState>,
     Query(p): Query<Pagination>,
 ) -> CoreResult<Json<serde_json::Value>> {
+    if let Some(folder) = s
+        .engine
+        .current_folder()
+        .await
+        .map_err(|m| CoreError::EngineOffline(m.into()))?
+    {
+        if let Some(snapshot) = graph_from_open_folder(&folder)? {
+            let rows = snapshot
+                .get("nodes")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default();
+            return Ok(ok(paginate_values(rows, &p)));
+        }
+    }
+
     let rows: Vec<NodeRow> = run_blocking(&s.pool, move |conn| {
         Ok(nodes::table
             .order(nodes::created_at.asc())
@@ -45,6 +61,28 @@ pub async fn get_node(
     State(s): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> CoreResult<Json<serde_json::Value>> {
+    if let Some(folder) = s
+        .engine
+        .current_folder()
+        .await
+        .map_err(|m| CoreError::EngineOffline(m.into()))?
+    {
+        if let Some(snapshot) = graph_from_open_folder(&folder)? {
+            if let Some(node) = snapshot
+                .get("nodes")
+                .and_then(|v| v.as_array())
+                .and_then(|rows| {
+                    rows.iter()
+                        .find(|row| row.get("id").and_then(|v| v.as_str()) == Some(&id.to_string()))
+                        .cloned()
+                })
+            {
+                return Ok(ok(node));
+            }
+            return Err(CoreError::NotFound(format!("node {id}")));
+        }
+    }
+
     let row: NodeRow = run_blocking(&s.pool, move |conn| {
         nodes::table
             .find(id)
@@ -139,6 +177,22 @@ pub async fn list_edges(
     State(s): State<AppState>,
     Query(p): Query<Pagination>,
 ) -> CoreResult<Json<serde_json::Value>> {
+    if let Some(folder) = s
+        .engine
+        .current_folder()
+        .await
+        .map_err(|m| CoreError::EngineOffline(m.into()))?
+    {
+        if let Some(snapshot) = graph_from_open_folder(&folder)? {
+            let rows = snapshot
+                .get("edges")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default();
+            return Ok(ok(paginate_values(rows, &p)));
+        }
+    }
+
     let rows: Vec<EdgeRow> = run_blocking(&s.pool, move |conn| {
         Ok(edges::table
             .order(edges::created_at.asc())
@@ -260,6 +314,15 @@ fn strip_search_body(row: NodeRow) -> serde_json::Value {
     value
 }
 
+fn paginate_values(
+    rows: Vec<serde_json::Value>,
+    pagination: &Pagination,
+) -> Vec<serde_json::Value> {
+    let offset = pagination.offset.max(0) as usize;
+    let limit = pagination.limit.max(0) as usize;
+    rows.into_iter().skip(offset).take(limit).collect()
+}
+
 fn graph_from_open_folder(folder: &std::path::Path) -> CoreResult<Option<serde_json::Value>> {
     let cortex = Cortex::open(folder)
         .map_err(|e| CoreError::BadRequest(format!("opening {}: {}", folder.display(), e)))?;
@@ -311,4 +374,93 @@ fn graph_from_open_folder(folder: &std::path::Path) -> CoreResult<Option<serde_j
         "nodes": nodes,
         "edges": edges,
     })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cortex_snn::format::topology::{NeuronSpec, SynapseSpec, TopologyDefaults};
+    use cortex_snn::{AddNeuron, CreateOptions};
+    use std::time::SystemTime;
+
+    fn unique_root(label: &str) -> std::path::PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("core-graph-{label}-{nanos}"))
+    }
+
+    fn make_lif_folder(root: &std::path::Path, name: &str, labels: &[&str]) {
+        let mut cx = cortex_snn::Cortex::create(
+            root,
+            CreateOptions {
+                name: name.into(),
+                cortex_type: "lif".into(),
+                source_root: root.display().to_string(),
+                now_rfc3339: "2026-05-22T12:00:00Z".into(),
+                defaults: TopologyDefaults {
+                    neuron: NeuronSpec::lif(),
+                    synapse: SynapseSpec::stdp(),
+                },
+                hh_config: None,
+            },
+        )
+        .unwrap();
+
+        for label in labels {
+            cx.add_neuron(AddNeuron {
+                label: (*label).into(),
+                ..Default::default()
+            })
+            .unwrap();
+        }
+    }
+
+    #[test]
+    fn graph_snapshot_reads_the_requested_folder_not_global_state() {
+        let root_a = unique_root("a");
+        let root_b = unique_root("b");
+        make_lif_folder(&root_a, "Folder A", &["a-only"]);
+        make_lif_folder(&root_b, "Folder B", &["b-one", "b-two"]);
+
+        let graph_a = graph_from_open_folder(&root_a).unwrap().unwrap();
+        let graph_b = graph_from_open_folder(&root_b).unwrap().unwrap();
+
+        let labels_a: Vec<_> = graph_a["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|n| n["label"].as_str().unwrap())
+            .collect();
+        let labels_b: Vec<_> = graph_b["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|n| n["label"].as_str().unwrap())
+            .collect();
+
+        assert_eq!(labels_a, vec!["a-only"]);
+        assert_eq!(labels_b, vec!["b-one", "b-two"]);
+
+        std::fs::remove_dir_all(&root_a).ok();
+        std::fs::remove_dir_all(&root_b).ok();
+    }
+
+    #[test]
+    fn folder_snapshot_pagination_is_stable() {
+        let rows = vec![
+            serde_json::json!({ "label": "a" }),
+            serde_json::json!({ "label": "b" }),
+            serde_json::json!({ "label": "c" }),
+        ];
+        let page = paginate_values(
+            rows,
+            &Pagination {
+                limit: 1,
+                offset: 1,
+            },
+        );
+        assert_eq!(page, vec![serde_json::json!({ "label": "b" })]);
+    }
 }

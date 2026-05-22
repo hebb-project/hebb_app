@@ -228,6 +228,10 @@ export type OpenCortexResponse = {
   weights_loaded: number;
 };
 
+export type CortexFolderStatus = {
+  folder: string | null;
+};
+
 /**
  * Hydrate core from a folder-backed `.cortex` network. Used for
  * non-KG networks where the folder, not Postgres, is the structural
@@ -246,6 +250,11 @@ export async function openCortexFolder(
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ folder: cortexDataFolder(rootFolder) }),
   });
+  return unwrap(r);
+}
+
+export async function getCortexFolder(base?: string): Promise<CortexFolderStatus> {
+  const r = await fetch(`${cortexHttpBase(base)}/api/cortex/folder`, { cache: "no-store" });
   return unwrap(r);
 }
 

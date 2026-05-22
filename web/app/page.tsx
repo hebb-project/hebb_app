@@ -7,6 +7,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Header } from "@/components/Header";
 import { StartScreen, type NetworkRecord } from "@/components/StartScreen";
 import { VaultSearchPanel } from "@/components/VaultSearchPanel";
+import { getCortexFolder } from "@/lib/cortex-api";
 import { onDesktopMenuAction } from "@/lib/desktop";
 import { DEFAULT_PALETTE, type StateKey } from "@/lib/state";
 
@@ -49,6 +50,7 @@ export default function Home() {
   const [stateKey, setStateKey] = useState<StateKey>("idle");
   const [spikeRate, setSpikeRate] = useState(0);
   const [uptime, setUptime] = useState(347);
+  const [activeFolder, setActiveFolder] = useState<string | null>(null);
 
   useEffect(() => {
     if (stateKey === "offline") return;
@@ -64,6 +66,7 @@ export default function Home() {
         setStateKey("idle");
         setSpikeRate(0);
         setUptime(0);
+        setActiveFolder(null);
       }
     }).then((unlisten) => {
       dispose = unlisten;
@@ -71,6 +74,25 @@ export default function Home() {
 
     return () => dispose();
   }, []);
+
+  useEffect(() => {
+    if (!network) {
+      setActiveFolder(null);
+      return;
+    }
+
+    let cancelled = false;
+    getCortexFolder()
+      .then((status) => {
+        if (!cancelled) setActiveFolder(status.folder);
+      })
+      .catch(() => {
+        if (!cancelled) setActiveFolder(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [network]);
 
   if (!network) {
     return (
@@ -88,6 +110,7 @@ export default function Home() {
           spikeRate={spikeRate}
           uptime={uptime}
           networkName={network.name}
+          activeFolder={activeFolder}
           onOpenStart={() => setNetwork(null)}
         />
         <div className="cols">
