@@ -112,6 +112,22 @@ mod tests {
     }
 
     #[test]
+    fn hh_slug_accepts_partial_metadata_config() {
+        let ct = CortexType::from_slug_and_config(
+            "hh",
+            Some(&serde_json::json!({ "integrator": "rk4" })),
+        )
+        .expect("partial HH metadata config should overlay defaults");
+        match ct {
+            CortexType::Hh { config } => {
+                assert_eq!(config.integrator, HhIntegrator::Rk4);
+                assert_eq!(config.c_m, HhConfig::default().c_m);
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
     fn hh_neuron_kind_carries_config() {
         let cfg = HhConfig {
             integrator: HhIntegrator::Rk4,
