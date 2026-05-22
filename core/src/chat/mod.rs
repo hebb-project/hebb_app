@@ -121,9 +121,14 @@ pub fn deterministic_reply(stimulated: &[Stimulus], activated: &[Activation]) ->
     if stimulated.is_empty() {
         return "Nothing relevant fired. The cortex doesn't have a concept matching this query yet.".into();
     }
-    let stim_labels: Vec<&str> = stimulated.iter().map(|s| s.label.as_str()).take(4).collect();
+    let stim_labels: Vec<&str> = stimulated
+        .iter()
+        .map(|s| s.label.as_str())
+        .take(4)
+        .collect();
     let act_str = if activated.is_empty() {
-        "cortex stayed quiet — stimulated nodes didn't propagate enough to ignite their neighbors".to_string()
+        "cortex stayed quiet — stimulated nodes didn't propagate enough to ignite their neighbors"
+            .to_string()
     } else {
         activated
             .iter()
@@ -132,5 +137,9 @@ pub fn deterministic_reply(stimulated: &[Stimulus], activated: &[Activation]) ->
             .collect::<Vec<_>>()
             .join(", ")
     };
-    format!("Stimulated [{}]. Activated: {}.", stim_labels.join(", "), act_str)
+    format!(
+        "Stimulated [{}]. Activated: {}.",
+        stim_labels.join(", "),
+        act_str
+    )
 }

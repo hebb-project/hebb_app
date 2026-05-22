@@ -47,8 +47,12 @@ pub fn parse_vault(root: &Path) -> std::io::Result<VaultParseSummary> {
 
     for entry in WalkDir::new(root).into_iter().filter_map(|e| e.ok()) {
         let path = entry.path();
-        if !entry.file_type().is_file() { continue; }
-        if path.extension().and_then(|s| s.to_str()) != Some("md") { continue; }
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        if path.extension().and_then(|s| s.to_str()) != Some("md") {
+            continue;
+        }
 
         summary.files_seen += 1;
         let rel = path.strip_prefix(root).unwrap_or(path).to_path_buf();
@@ -79,19 +83,29 @@ pub fn parse_vault(root: &Path) -> std::io::Result<VaultParseSummary> {
         // Hashtags in body — record but don't materialize as nodes.
         let tags = extract_hashtags(body);
         if !tags.is_empty() {
-            metadata.entry("body_tags".to_string())
+            metadata
+                .entry("body_tags".to_string())
                 .or_insert(serde_json::json!(tags));
         }
-        metadata.insert("body_excerpt".to_string(), serde_json::json!(excerpt(body, 280)));
-        metadata.insert("body_text".to_string(), serde_json::json!(truncate_for_search(body, 20_000)));
+        metadata.insert(
+            "body_excerpt".to_string(),
+            serde_json::json!(excerpt(body, 280)),
+        );
+        metadata.insert(
+            "body_text".to_string(),
+            serde_json::json!(truncate_for_search(body, 20_000)),
+        );
 
         let node_type = infer_node_type(&rel, &metadata);
-        nodes_by_label.insert(label.clone(), ParsedNode {
-            label: label.clone(),
-            node_type,
-            source_file: Some(rel.to_string_lossy().to_string()),
-            metadata: serde_json::Value::Object(metadata),
-        });
+        nodes_by_label.insert(
+            label.clone(),
+            ParsedNode {
+                label: label.clone(),
+                node_type,
+                source_file: Some(rel.to_string_lossy().to_string()),
+                metadata: serde_json::Value::Object(metadata),
+            },
+        );
 
         for target in extract_wikilinks(body) {
             edges.push(ParsedEdge {
@@ -105,12 +119,14 @@ pub fn parse_vault(root: &Path) -> std::io::Result<VaultParseSummary> {
 
     // Create stub nodes for wikilink targets that don't resolve to any file.
     for e in &edges {
-        nodes_by_label.entry(e.post_label.clone()).or_insert_with(|| ParsedNode {
-            label: e.post_label.clone(),
-            node_type: "stub".to_string(),
-            source_file: None,
-            metadata: serde_json::json!({}),
-        });
+        nodes_by_label
+            .entry(e.post_label.clone())
+            .or_insert_with(|| ParsedNode {
+                label: e.post_label.clone(),
+                node_type: "stub".to_string(),
+                source_file: None,
+                metadata: serde_json::json!({}),
+            });
     }
 
     summary.nodes = nodes_by_label.into_values().collect();
@@ -135,7 +151,9 @@ fn infer_node_type(rel: &Path, metadata: &serde_json::Map<String, serde_json::Va
         }
     }
     // Fall back to top-level folder name.
-    let first_dir = rel.components().next()
+    let first_dir = rel
+        .components()
+        .next()
         .and_then(|c| c.as_os_str().to_str())
         .unwrap_or("");
     match first_dir {
@@ -146,7 +164,8 @@ fn infer_node_type(rel: &Path, metadata: &serde_json::Map<String, serde_json::Va
         "experiments" => "experiment",
         "entities" => "entity",
         _ => "concept",
-    }.to_string()
+    }
+    .to_string()
 }
 
 fn split_frontmatter(raw: &str) -> (Option<&str>, &str) {
@@ -191,7 +210,9 @@ fn extract_wikilinks(body: &str) -> Vec<String> {
                     }
                     // Skip past the consumed content.
                     while let Some(&(j, _)) = chars.peek() {
-                        if j >= start + off + 2 { break; }
+                        if j >= start + off + 2 {
+                            break;
+                        }
                         chars.next();
                     }
                 }
@@ -205,7 +226,8 @@ fn extract_hashtags(body: &str) -> Vec<String> {
     let mut out = Vec::new();
     for word in body.split(|c: char| c.is_whitespace() || c == ',' || c == '.') {
         if let Some(tag) = word.strip_prefix('#') {
-            let tag = tag.trim_matches(|c: char| !c.is_alphanumeric() && c != '/' && c != '-' && c != '_');
+            let tag = tag
+                .trim_matches(|c: char| !c.is_alphanumeric() && c != '/' && c != '-' && c != '_');
             if !tag.is_empty() && tag.chars().next().map_or(false, |c| c.is_alphabetic()) {
                 out.push(tag.to_string());
             }
@@ -233,7 +255,8 @@ mod tests {
 
     #[test]
     fn extracts_wikilinks_with_aliases_and_headings() {
-        let body = "see [[memory]] and [[learning|the learning page]] and [[concepts/memory#section]].";
+        let body =
+            "see [[memory]] and [[learning|the learning page]] and [[concepts/memory#section]].";
         let links = extract_wikilinks(body);
         assert_eq!(links, vec!["memory", "learning", "memory"]);
     }

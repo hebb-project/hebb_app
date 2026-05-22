@@ -39,8 +39,8 @@ impl AnthropicEncoder {
     pub fn from_env() -> Result<Self, String> {
         let api_key = std::env::var("ANTHROPIC_API_KEY")
             .map_err(|_| "ANTHROPIC_API_KEY not set".to_string())?;
-        let model = std::env::var("CORTEX_CHAT_MODEL")
-            .unwrap_or_else(|_| DEFAULT_MODEL.to_string());
+        let model =
+            std::env::var("CORTEX_CHAT_MODEL").unwrap_or_else(|_| DEFAULT_MODEL.to_string());
         let client = reqwest::Client::builder()
             // The Anthropic call is the long pole on a chat round-trip.
             // 30s gives Haiku room without letting a hung connection
@@ -58,7 +58,12 @@ impl AnthropicEncoder {
         })
     }
 
-    async fn call_messages(&self, system: Option<&str>, user: &str, max_tokens: u32) -> Result<String, String> {
+    async fn call_messages(
+        &self,
+        system: Option<&str>,
+        user: &str,
+        max_tokens: u32,
+    ) -> Result<String, String> {
         let mut body = serde_json::json!({
             "model": self.model,
             "max_tokens": max_tokens,
@@ -114,7 +119,10 @@ impl ChatEncoder for AnthropicEncoder {
         // for reproducibility).
         let mut by_type: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
         for n in nodes {
-            by_type.entry(n.node_type.as_str()).or_default().push(n.label.as_str());
+            by_type
+                .entry(n.node_type.as_str())
+                .or_default()
+                .push(n.label.as_str());
         }
         let mut catalogue = String::new();
         for (t, labels) in &mut by_type {
@@ -126,7 +134,10 @@ impl ChatEncoder for AnthropicEncoder {
             "Candidate nodes (grouped by type):\n{catalogue}\nUser message: \"\"\"{message}\"\"\"\n\nJSON only."
         );
 
-        let text = match self.call_messages(Some(ENCODE_SYSTEM_PROMPT), &user_msg, 512).await {
+        let text = match self
+            .call_messages(Some(ENCODE_SYSTEM_PROMPT), &user_msg, 512)
+            .await
+        {
             Ok(t) => t,
             Err(e) => {
                 tracing::warn!(error = %e, "anthropic encode call failed; returning no stimuli");
@@ -140,7 +151,9 @@ impl ChatEncoder for AnthropicEncoder {
         let mut scored: Vec<(Uuid, String, f32)> = scores
             .into_iter()
             .filter_map(|(label, score)| {
-                by_label.get(label.as_str()).map(|n| (n.id, n.label.clone(), score))
+                by_label
+                    .get(label.as_str())
+                    .map(|n| (n.id, n.label.clone(), score))
             })
             .collect();
         scored.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
@@ -169,7 +182,12 @@ impl ChatEncoder for AnthropicEncoder {
         } else {
             stimulated
                 .iter()
-                .map(|s| format!("  - {} (score {:.2}, {:.1} current)", s.label, s.score, s.current))
+                .map(|s| {
+                    format!(
+                        "  - {} (score {:.2}, {:.1} current)",
+                        s.label, s.score, s.current
+                    )
+                })
                 .collect::<Vec<_>>()
                 .join("\n")
         };
@@ -244,7 +262,9 @@ fn parse_label_scores(text: &str) -> Vec<(String, f32)> {
 }
 
 fn strip_code_fence(s: &str) -> Option<&str> {
-    let s = s.strip_prefix("```json").or_else(|| s.strip_prefix("```"))?;
+    let s = s
+        .strip_prefix("```json")
+        .or_else(|| s.strip_prefix("```"))?;
     let s = s.trim_start_matches('\n');
     let s = s.strip_suffix("```").unwrap_or(s);
     Some(s.trim())

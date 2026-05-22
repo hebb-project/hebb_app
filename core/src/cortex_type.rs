@@ -79,7 +79,9 @@ impl CortexType {
 }
 
 impl Default for CortexType {
-    fn default() -> Self { Self::Lif }
+    fn default() -> Self {
+        Self::Lif
+    }
 }
 
 #[cfg(test)]
@@ -96,7 +98,10 @@ mod tests {
     #[test]
     fn hh_round_trips_with_config() {
         let original = CortexType::Hh {
-            config: HhConfig { integrator: HhIntegrator::Rk4, ..HhConfig::default() },
+            config: HhConfig {
+                integrator: HhIntegrator::Rk4,
+                ..HhConfig::default()
+            },
         };
         let v = serde_json::to_value(&original).unwrap();
         let back: CortexType = serde_json::from_value(v).unwrap();
@@ -108,7 +113,10 @@ mod tests {
 
     #[test]
     fn hh_neuron_kind_carries_config() {
-        let cfg = HhConfig { integrator: HhIntegrator::Rk4, ..HhConfig::default() };
+        let cfg = HhConfig {
+            integrator: HhIntegrator::Rk4,
+            ..HhConfig::default()
+        };
         let ct = CortexType::Hh { config: cfg };
         match ct.neuron_kind() {
             NeuronKind::Hh(c) => assert_eq!(c.integrator, HhIntegrator::Rk4),
@@ -118,6 +126,9 @@ mod tests {
 
     #[test]
     fn kg_maps_to_lif_neurons() {
-        assert!(matches!(CortexType::KnowledgeGraph.neuron_kind(), NeuronKind::Lif));
+        assert!(matches!(
+            CortexType::KnowledgeGraph.neuron_kind(),
+            NeuronKind::Lif
+        ));
     }
 }

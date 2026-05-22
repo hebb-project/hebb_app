@@ -21,7 +21,9 @@ pub struct Pagination {
     pub offset: i64,
 }
 
-fn default_limit() -> i64 { 500 }
+fn default_limit() -> i64 {
+    500
+}
 
 pub async fn list_nodes(
     State(s): State<AppState>,
@@ -34,7 +36,8 @@ pub async fn list_nodes(
             .offset(p.offset)
             .select(NodeRow::as_select())
             .load(conn)?)
-    }).await?;
+    })
+    .await?;
     Ok(ok(rows))
 }
 
@@ -51,7 +54,8 @@ pub async fn get_node(
                 diesel::result::Error::NotFound => CoreError::NotFound(format!("node {id}")),
                 other => CoreError::from(other),
             })
-    }).await?;
+    })
+    .await?;
     Ok(ok(row))
 }
 
@@ -89,7 +93,8 @@ pub async fn create_node(
             .values(&new)
             .returning(NodeRow::as_returning())
             .get_result(conn)?)
-    }).await?;
+    })
+    .await?;
     let _ = engine.add_node(row.id).await;
     Ok(ok(row))
 }
@@ -122,7 +127,8 @@ pub async fn delete_node(
 
     let n: usize = run_blocking(&s.pool, move |conn| {
         Ok(diesel::delete(nodes::table.find(id)).execute(conn)?)
-    }).await?;
+    })
+    .await?;
     if n == 0 {
         return Err(CoreError::NotFound(format!("node {id}")));
     }
@@ -140,7 +146,8 @@ pub async fn list_edges(
             .offset(p.offset)
             .select(EdgeRow::as_select())
             .load(conn)?)
-    }).await?;
+    })
+    .await?;
     Ok(ok(rows))
 }
 
@@ -178,8 +185,11 @@ pub async fn create_edge(
             .values(&new)
             .returning(EdgeRow::as_returning())
             .get_result(conn)?)
-    }).await?;
-    let _ = engine.add_edge(row.id, row.pre_id, row.post_id, row.weight).await;
+    })
+    .await?;
+    let _ = engine
+        .add_edge(row.id, row.pre_id, row.post_id, row.weight)
+        .await;
     Ok(ok(row))
 }
 
@@ -206,7 +216,8 @@ pub async fn delete_edge(
 
     let n: usize = run_blocking(&s.pool, move |conn| {
         Ok(diesel::delete(edges::table.find(id)).execute(conn)?)
-    }).await?;
+    })
+    .await?;
     if n == 0 {
         return Err(CoreError::NotFound(format!("edge {id}")));
     }
@@ -216,9 +227,7 @@ pub async fn delete_edge(
 /// Single-shot snapshot the frontend uses on mount. Returns the whole
 /// graph; assumes the M0 scale of low-thousands of nodes is fine for one
 /// JSON payload.
-pub async fn get_full_graph(
-    State(s): State<AppState>,
-) -> CoreResult<Json<serde_json::Value>> {
+pub async fn get_full_graph(State(s): State<AppState>) -> CoreResult<Json<serde_json::Value>> {
     if let Some(folder) = s
         .engine
         .current_folder()
@@ -234,7 +243,8 @@ pub async fn get_full_graph(
         let n = nodes::table.select(NodeRow::as_select()).load(conn)?;
         let e = edges::table.select(EdgeRow::as_select()).load(conn)?;
         Ok((n, e))
-    }).await?;
+    })
+    .await?;
 
     Ok(ok(serde_json::json!({
         "nodes": n.into_iter().map(strip_search_body).collect::<Vec<_>>(),

@@ -18,9 +18,7 @@ pub type PgPooled = PooledConnection<ConnectionManager<PgConnection>>;
 
 pub fn build_pool(database_url: &str) -> anyhow::Result<PgPool> {
     let mgr = ConnectionManager::<PgConnection>::new(database_url);
-    let pool = Pool::builder()
-        .max_size(16)
-        .build(mgr)?;
+    let pool = Pool::builder().max_size(16).build(mgr)?;
     Ok(pool)
 }
 

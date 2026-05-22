@@ -14,8 +14,7 @@ mod supervisor;
 use std::sync::Arc;
 
 use supervisor::{
-    wait_for_health, BootstrapState, CoreLauncher, PostgresProvider, Supervisor,
-    SupervisorOverview,
+    wait_for_health, BootstrapState, CoreLauncher, PostgresProvider, Supervisor, SupervisorOverview,
 };
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
