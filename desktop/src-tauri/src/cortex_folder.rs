@@ -74,7 +74,7 @@ pub struct CortexMetadata {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_kind: Option<String>,
     pub source_root: String,
-    pub created_at: String,  // RFC 3339
+    pub created_at: String, // RFC 3339
     pub updated_at: String,
 }
 
@@ -178,15 +178,19 @@ async fn load_metadata(root: &Path) -> Option<CortexMetadata> {
 /// the original inline `init_cortex_folder` code; pulled out so the
 /// migration path can reuse it.
 async fn write_metadata(meta_path: &Path, m: &CortexMetadata) -> Result<(), String> {
-    let body = serde_json::to_string_pretty(m)
-        .map_err(|e| format!("serializing metadata: {e}"))?;
+    let body = serde_json::to_string_pretty(m).map_err(|e| format!("serializing metadata: {e}"))?;
     let tmp = meta_path.with_extension("json.tmp");
     fs::write(&tmp, body.as_bytes())
         .await
         .map_err(|e| format!("writing {}: {}", tmp.display(), e))?;
-    fs::rename(&tmp, meta_path)
-        .await
-        .map_err(|e| format!("renaming {} → {}: {}", tmp.display(), meta_path.display(), e))?;
+    fs::rename(&tmp, meta_path).await.map_err(|e| {
+        format!(
+            "renaming {} → {}: {}",
+            tmp.display(),
+            meta_path.display(),
+            e
+        )
+    })?;
     Ok(())
 }
 
@@ -238,7 +242,11 @@ pub async fn inspect_cortex_folder(path: String) -> Result<CortexFolderInfo, Str
     let cortex = cortex_dir(&root);
     let has_cortex = matches!(fs::metadata(&cortex).await, Ok(m) if m.is_dir())
         && matches!(fs::metadata(metadata_path(&root)).await, Ok(m) if m.is_file());
-    let metadata = if has_cortex { load_metadata(&root).await } else { None };
+    let metadata = if has_cortex {
+        load_metadata(&root).await
+    } else {
+        None
+    };
     Ok(CortexFolderInfo {
         root: root.to_string_lossy().to_string(),
         cortex_path: cortex.to_string_lossy().to_string(),
@@ -302,7 +310,9 @@ pub async fn init_cortex_folder(
             hh_config: hh_config.clone(),
             source_kind: None,
             source_root: root.to_string_lossy().to_string(),
-            created_at: existing.map(|m| m.created_at).unwrap_or_else(|| now.clone()),
+            created_at: existing
+                .map(|m| m.created_at)
+                .unwrap_or_else(|| now.clone()),
             updated_at: now.clone(),
         };
         write_metadata(&meta_path, &metadata).await?;
@@ -393,7 +403,9 @@ mod tests {
 
         // weights/hh/ should have been created so downstream tooling
         // can drop checkpoints into a predictable path.
-        let weights_hh = std::path::Path::new(&after.cortex_path).join("weights").join("hh");
+        let weights_hh = std::path::Path::new(&after.cortex_path)
+            .join("weights")
+            .join("hh");
         assert!(weights_hh.is_dir(), "weights/hh/ should exist");
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -443,7 +455,10 @@ mod tests {
         let m = info.metadata.expect("metadata");
         assert_eq!(m.version, 2);
         assert_eq!(m.cortex_type, "knowledge-graph");
-        assert!(m.source_kind.is_none(), "legacy field should be dropped on rewrite");
+        assert!(
+            m.source_kind.is_none(),
+            "legacy field should be dropped on rewrite"
+        );
 
         // File on disk should now be v2 too — re-read and re-parse.
         let raw = std::fs::read_to_string(&path).unwrap();
@@ -458,7 +473,10 @@ mod tests {
     #[test]
     fn source_kind_mapping_covers_known_cases() {
         assert_eq!(source_kind_to_cortex_type("fresh"), "lif");
-        assert_eq!(source_kind_to_cortex_type("knowledge-graph"), "knowledge-graph");
+        assert_eq!(
+            source_kind_to_cortex_type("knowledge-graph"),
+            "knowledge-graph"
+        );
         assert_eq!(source_kind_to_cortex_type("garbage"), "lif");
     }
 }

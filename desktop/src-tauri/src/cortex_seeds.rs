@@ -199,9 +199,12 @@ fn build_seed(spec: &SeedSpec) -> Result<seeds::Seed, seeds::SeedError> {
     match spec.clone() {
         SeedSpec::Random { n, p, config } => seeds::random(n, p, config.seed, config.into()),
         SeedSpec::Ring { n, k, config } => seeds::ring(n, k, config.seed, config.into()),
-        SeedSpec::SmallWorld { n, k, p_rewire, config } => {
-            seeds::small_world(n, k, p_rewire, config.seed, config.into())
-        }
+        SeedSpec::SmallWorld {
+            n,
+            k,
+            p_rewire,
+            config,
+        } => seeds::small_world(n, k, p_rewire, config.seed, config.into()),
         SeedSpec::Layered { layers, config } => seeds::layered(&layers, config.seed, config.into()),
     }
 }
@@ -235,13 +238,19 @@ mod tests {
             SeedSpec::Random {
                 n: 8,
                 p: 0.5,
-                config: SeedConfig { seed: 7, ..Default::default() },
+                config: SeedConfig {
+                    seed: 7,
+                    ..Default::default()
+                },
             },
         )
         .await
         .expect("seed");
         assert_eq!(summary.added_nodes, 8);
-        assert!(summary.added_edges > 0, "p=0.5 on 8 nodes should yield edges");
+        assert!(
+            summary.added_edges > 0,
+            "p=0.5 on 8 nodes should yield edges"
+        );
         assert_eq!(summary.cortex_type, "lif");
 
         // topology.json must now exist and round-trip the node count.
@@ -271,7 +280,10 @@ mod tests {
         let spec = || SeedSpec::Ring {
             n: 12,
             k: 2,
-            config: SeedConfig { seed: 42, ..Default::default() },
+            config: SeedConfig {
+                seed: 42,
+                ..Default::default()
+            },
         };
         let a = seed_cortex_folder(p1, spec()).await.unwrap();
         let b = seed_cortex_folder(p2, spec()).await.unwrap();
@@ -352,7 +364,10 @@ mod tests {
         // before apply_seed at all).
         let canonical = std::fs::canonicalize(&dir).unwrap();
         let topology_path = canonical.join(".cortex").join("topology.json");
-        assert!(!topology_path.exists(), "topology.json should not exist after rejected seed");
+        assert!(
+            !topology_path.exists(),
+            "topology.json should not exist after rejected seed"
+        );
 
         std::fs::remove_dir_all(&dir).unwrap();
     }

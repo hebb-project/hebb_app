@@ -33,10 +33,9 @@ pub async fn post_configure(
     Ok(ok(serde_json::json!({ "cortex_type": slug })))
 }
 
-pub async fn get_current(
-    State(s): State<AppState>,
-) -> CoreResult<Json<serde_json::Value>> {
-    let ct = s.engine
+pub async fn get_current(State(s): State<AppState>) -> CoreResult<Json<serde_json::Value>> {
+    let ct = s
+        .engine
         .cortex_type()
         .await
         .map_err(|m| CoreError::EngineOffline(m.into()))?;
@@ -66,14 +65,14 @@ pub async fn post_open(
         .open(folder)
         .await
         .map_err(CoreError::EngineOffline)?;
-    Ok(ok(serde_json::to_value(summary).unwrap_or(serde_json::Value::Null)))
+    Ok(ok(
+        serde_json::to_value(summary).unwrap_or(serde_json::Value::Null)
+    ))
 }
 
 /// `GET /api/cortex/folder` — the path of the currently-open folder,
 /// or null if the engine is running on transient state.
-pub async fn get_folder(
-    State(s): State<AppState>,
-) -> CoreResult<Json<serde_json::Value>> {
+pub async fn get_folder(State(s): State<AppState>) -> CoreResult<Json<serde_json::Value>> {
     let folder = s
         .engine
         .current_folder()

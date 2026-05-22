@@ -22,7 +22,9 @@ pub struct SearchQuery {
     pub limit: usize,
 }
 
-fn default_limit() -> usize { 10 }
+fn default_limit() -> usize {
+    10
+}
 
 #[derive(Debug, Serialize)]
 pub struct SearchResult {
@@ -51,7 +53,8 @@ pub async fn search_nodes(
             .limit(10_000)
             .select(NodeRow::as_select())
             .load(conn)?)
-    }).await?;
+    })
+    .await?;
 
     let mut results: Vec<SearchResult> = rows
         .into_iter()
@@ -75,7 +78,8 @@ pub async fn search_nodes(
 fn score_row(row: NodeRow, terms: &[String]) -> Option<SearchResult> {
     let label = row.label.to_lowercase();
     let source = row.source_file.clone().unwrap_or_default().to_lowercase();
-    let body = row.metadata
+    let body = row
+        .metadata
         .get("body_text")
         .and_then(|v| v.as_str())
         .unwrap_or("")
@@ -146,9 +150,8 @@ fn snippet_for(metadata: &serde_json::Value, terms: &[String]) -> Option<String>
 }
 
 const STOPWORDS: &[&str] = &[
-    "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "how",
-    "in", "is", "it", "of", "on", "or", "the", "to", "was", "were", "what",
-    "when", "where", "who", "why", "with",
+    "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "how", "in", "is", "it", "of",
+    "on", "or", "the", "to", "was", "were", "what", "when", "where", "who", "why", "with",
 ];
 
 #[cfg(test)]
@@ -157,6 +160,9 @@ mod tests {
 
     #[test]
     fn query_terms_drop_stopwords() {
-        assert_eq!(query_terms("What is active inference?"), vec!["active", "inference"]);
+        assert_eq!(
+            query_terms("What is active inference?"),
+            vec!["active", "inference"]
+        );
     }
 }

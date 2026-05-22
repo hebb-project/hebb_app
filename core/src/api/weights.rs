@@ -12,10 +12,7 @@ use super::{ok, AppState};
 use crate::engine::{WeightDelta, WeightFrame};
 use crate::error::{CoreError, CoreResult};
 
-pub async fn ws_weights(
-    ws: WebSocketUpgrade,
-    State(s): State<AppState>,
-) -> impl IntoResponse {
+pub async fn ws_weights(ws: WebSocketUpgrade, State(s): State<AppState>) -> impl IntoResponse {
     ws.on_upgrade(move |socket| weights_socket(socket, s))
 }
 
@@ -30,7 +27,8 @@ async fn weights_socket(socket: WebSocket, state: AppState) {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs_f64() * 1000.0)
             .unwrap_or(0.0);
-        let deltas: Vec<WeightDelta> = snap.into_iter()
+        let deltas: Vec<WeightDelta> = snap
+            .into_iter()
             .map(|(edge_id, w)| WeightDelta { edge_id, w })
             .collect();
         let frame = WeightFrame::snapshot(now, deltas);
@@ -56,7 +54,9 @@ async fn weights_socket(socket: WebSocket, state: AppState) {
                         Ok(s) => s,
                         Err(_) => continue,
                     };
-                    if sender.send(Message::Text(payload)).await.is_err() { break; }
+                    if sender.send(Message::Text(payload)).await.is_err() {
+                        break;
+                    }
                 }
                 Err(RecvError::Lagged(n)) => {
                     tracing::debug!(lagged = n, "ws weight receiver lagged; continuing");
@@ -73,9 +73,13 @@ async fn weights_socket(socket: WebSocket, state: AppState) {
 pub async fn get_weights_snapshot(
     State(s): State<AppState>,
 ) -> CoreResult<Json<serde_json::Value>> {
-    let snap = s.engine.weight_snapshot().await
+    let snap = s
+        .engine
+        .weight_snapshot()
+        .await
         .map_err(|m| CoreError::EngineOffline(m.into()))?;
-    let payload: Vec<_> = snap.into_iter()
+    let payload: Vec<_> = snap
+        .into_iter()
         .map(|(edge_id, w)| serde_json::json!({ "edge_id": edge_id, "w": w }))
         .collect();
     Ok(ok(serde_json::json!({ "weights": payload })))

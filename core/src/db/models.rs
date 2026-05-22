@@ -37,8 +37,12 @@ pub struct NewNode {
     pub metadata: serde_json::Value,
 }
 
-fn default_node_type() -> String { "concept".to_string() }
-fn default_metadata() -> serde_json::Value { serde_json::json!({}) }
+fn default_node_type() -> String {
+    "concept".to_string()
+}
+fn default_metadata() -> serde_json::Value {
+    serde_json::json!({})
+}
 
 // ─── edges ────────────────────────────────────────────────────────────────
 
@@ -68,8 +72,12 @@ pub struct NewEdge {
     pub metadata: serde_json::Value,
 }
 
-fn default_weight() -> f32 { 0.5 }
-fn default_edge_type() -> String { "association".to_string() }
+fn default_weight() -> f32 {
+    0.5
+}
+fn default_edge_type() -> String {
+    "association".to_string()
+}
 
 // ─── spike_log ────────────────────────────────────────────────────────────
 

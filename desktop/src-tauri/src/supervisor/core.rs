@@ -58,8 +58,7 @@ impl CoreLauncher {
                 // RUST_LOG can be overridden by the desktop's own env.
                 (
                     "RUST_LOG".into(),
-                    std::env::var("CORTEX_CORE_LOG")
-                        .unwrap_or_else(|_| "info,core=debug".into()),
+                    std::env::var("CORTEX_CORE_LOG").unwrap_or_else(|_| "info,core=debug".into()),
                 ),
             ],
             cwd: None,
@@ -115,7 +114,10 @@ fn parse_bind(bind: &str) -> (String, String) {
     if let Some((h, p)) = bind.rsplit_once(':') {
         (h.into(), p.into())
     } else {
-        (DEFAULT_BIND.split(':').next().unwrap().into(), DEFAULT_BIND.rsplit(':').next().unwrap().into())
+        (
+            DEFAULT_BIND.split(':').next().unwrap().into(),
+            DEFAULT_BIND.rsplit(':').next().unwrap().into(),
+        )
     }
 }
 
@@ -126,7 +128,10 @@ fn resolve_binary() -> anyhow::Result<PathBuf> {
     if let Ok(p) = std::env::var("CORTEX_CORE_BIN") {
         let path = PathBuf::from(p);
         if !path.exists() {
-            anyhow::bail!("CORTEX_CORE_BIN set but path does not exist: {}", path.display());
+            anyhow::bail!(
+                "CORTEX_CORE_BIN set but path does not exist: {}",
+                path.display()
+            );
         }
         return Ok(path);
     }

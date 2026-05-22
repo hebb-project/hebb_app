@@ -16,10 +16,7 @@ use tokio::sync::broadcast::error::RecvError;
 
 use super::AppState;
 
-pub async fn ws_spikes(
-    ws: WebSocketUpgrade,
-    State(s): State<AppState>,
-) -> impl IntoResponse {
+pub async fn ws_spikes(ws: WebSocketUpgrade, State(s): State<AppState>) -> impl IntoResponse {
     ws.on_upgrade(move |socket| spike_socket(socket, s))
 }
 

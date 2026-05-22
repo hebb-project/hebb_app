@@ -76,8 +76,7 @@ pub async fn post_chat(
     }
 
     let candidates: Vec<NodeRef> = rows.iter().map(node_row_to_ref).collect();
-    let label_by_id: HashMap<Uuid, String> =
-        rows.iter().map(|n| (n.id, n.label.clone())).collect();
+    let label_by_id: HashMap<Uuid, String> = rows.iter().map(|n| (n.id, n.label.clone())).collect();
 
     // 2. Encoder picks seeds.
     let encoder = s.chat_encoder.clone();
@@ -136,8 +135,7 @@ pub async fn post_chat(
 
     // Sort by spike count descending, drop the seeds themselves so the
     // activation list highlights *propagation*, not the input.
-    let stim_set: std::collections::HashSet<Uuid> =
-        stimuli.iter().map(|s| s.node_id).collect();
+    let stim_set: std::collections::HashSet<Uuid> = stimuli.iter().map(|s| s.node_id).collect();
     let mut activated: Vec<Activation> = counts
         .into_iter()
         .filter(|(id, _)| !stim_set.contains(id))
@@ -157,7 +155,9 @@ pub async fn post_chat(
     activated.truncate(MAX_ACTIVATIONS);
 
     // 6. Synthesize the reply.
-    let reply = encoder.synthesize_reply(message, &stimuli, &activated).await;
+    let reply = encoder
+        .synthesize_reply(message, &stimuli, &activated)
+        .await;
 
     Ok(ok(ChatResponse {
         reply,

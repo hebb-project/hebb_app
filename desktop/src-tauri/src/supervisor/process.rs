@@ -100,7 +100,11 @@ impl ManagedProcess {
         }
 
         let mut child = cmd.spawn().map_err(|e| {
-            anyhow::anyhow!("spawn {}: {e} (program: {})", self.cfg.name, self.cfg.program)
+            anyhow::anyhow!(
+                "spawn {}: {e} (program: {})",
+                self.cfg.name,
+                self.cfg.program
+            )
         })?;
         let pid = child.id().unwrap_or(0);
 
@@ -140,7 +144,9 @@ impl ManagedProcess {
                 }
                 Err(e) => {
                     tracing::error!(name = %name, error = %e, "wait() failed");
-                    *state.lock().await = State::Failed { reason: e.to_string() };
+                    *state.lock().await = State::Failed {
+                        reason: e.to_string(),
+                    };
                 }
             }
         });

@@ -106,7 +106,11 @@ fn init_tracing() {
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info,core=debug"));
     tracing_subscriber::registry()
         .with(filter)
-        .with(tracing_subscriber::fmt::layer().with_target(true).with_thread_ids(false))
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_target(true)
+                .with_thread_ids(false),
+        )
         .init();
 }
 
@@ -116,7 +120,8 @@ async fn shutdown_signal() {
     };
     #[cfg(unix)]
     let terminate = async {
-        if let Ok(mut s) = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+        if let Ok(mut s) = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        {
             s.recv().await;
         }
     };
@@ -143,10 +148,12 @@ async fn hydrate_engine(pool: &db::PgPool, engine: &engine::SimHandle) -> anyhow
         let ns = nodes::table.select(NodeRow::as_select()).load(conn)?;
         let es = edges::table.select(EdgeRow::as_select()).load(conn)?;
         Ok((ns, es))
-    }).await?;
+    })
+    .await?;
 
     let n_ids: Vec<uuid::Uuid> = node_rows.iter().map(|n| n.id).collect();
-    let e_tuples: Vec<(uuid::Uuid, uuid::Uuid, uuid::Uuid, f32)> = edge_rows.iter()
+    let e_tuples: Vec<(uuid::Uuid, uuid::Uuid, uuid::Uuid, f32)> = edge_rows
+        .iter()
         .map(|e| (e.id, e.pre_id, e.post_id, e.weight))
         .collect();
 

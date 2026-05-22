@@ -118,10 +118,9 @@ fn query_terms(query: &str) -> Vec<String> {
 }
 
 const STOPWORDS: &[&str] = &[
-    "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "how",
-    "in", "is", "it", "of", "on", "or", "the", "to", "was", "were", "what",
-    "when", "where", "who", "whose", "why", "with", "tell", "me", "about",
-    "did", "do", "does",
+    "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "how", "in", "is", "it", "of",
+    "on", "or", "the", "to", "was", "were", "what", "when", "where", "who", "whose", "why", "with",
+    "tell", "me", "about", "did", "do", "does",
 ];
 
 #[cfg(test)]

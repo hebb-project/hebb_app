@@ -32,13 +32,17 @@ pub async fn post_ingest(
     State(s): State<AppState>,
     Json(body): Json<IngestBody>,
 ) -> CoreResult<Json<serde_json::Value>> {
-    let path: PathBuf = body.path
+    let path: PathBuf = body
+        .path
         .as_deref()
         .map(PathBuf::from)
         .unwrap_or_else(|| (*s.vault_path).clone());
 
     if !path.exists() {
-        return Err(CoreError::BadRequest(format!("vault path not found: {}", path.display())));
+        return Err(CoreError::BadRequest(format!(
+            "vault path not found: {}",
+            path.display()
+        )));
     }
 
     let path_for_parse = path.clone();
@@ -48,13 +52,12 @@ pub async fn post_ingest(
 
     let engine = s.engine.clone();
     let (db_nodes, db_edges, summary): (Vec<NodeRow>, Vec<EdgeRow>, serde_json::Value) =
-        run_blocking(&s.pool, move |conn| {
-            ingest_into_db(conn, parsed)
-        }).await?;
+        run_blocking(&s.pool, move |conn| ingest_into_db(conn, parsed)).await?;
 
     // Push the new subgraph into the live engine.
     let node_ids: Vec<Uuid> = db_nodes.iter().map(|n| n.id).collect();
-    let edge_tuples: Vec<(Uuid, Uuid, Uuid, f32)> = db_edges.iter()
+    let edge_tuples: Vec<(Uuid, Uuid, Uuid, f32)> = db_edges
+        .iter()
         .map(|e| (e.id, e.pre_id, e.post_id, e.weight))
         .collect();
     let _ = engine.ingest_batch(node_ids, edge_tuples).await;
@@ -129,9 +132,17 @@ fn ingest_into_db(
 
         // 3. Upsert edges.
         for e in &parsed.edges {
-            let pre = match id_by_label.get(&e.pre_label) { Some(id) => *id, None => continue };
-            let post = match id_by_label.get(&e.post_label) { Some(id) => *id, None => continue };
-            if pre == post { continue; }
+            let pre = match id_by_label.get(&e.pre_label) {
+                Some(id) => *id,
+                None => continue,
+            };
+            let post = match id_by_label.get(&e.post_label) {
+                Some(id) => *id,
+                None => continue,
+            };
+            if pre == post {
+                continue;
+            }
 
             let existing: Option<EdgeRow> = edges::table
                 .filter(edges::pre_id.eq(pre))
@@ -142,7 +153,9 @@ fn ingest_into_db(
                 .optional()?;
 
             match existing {
-                Some(_) => { edges_existing += 1; }
+                Some(_) => {
+                    edges_existing += 1;
+                }
                 None => {
                     edges_created += 1;
                     diesel::insert_into(edges::table)

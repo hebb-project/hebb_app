@@ -78,7 +78,9 @@ pub fn spawn_spike_persister(
 
 async fn flush_spikes(pool: &PgPool, rows: Vec<NewSpike>) {
     let n = rows.len();
-    if n == 0 { return; }
+    if n == 0 {
+        return;
+    }
     let result = run_blocking(pool, move |conn| {
         diesel::insert_into(spike_log::table)
             .values(&rows)

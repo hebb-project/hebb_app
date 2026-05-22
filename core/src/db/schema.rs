@@ -37,8 +37,4 @@ diesel::table! {
 
 diesel::joinable!(spike_log -> nodes (node_id));
 
-diesel::allow_tables_to_appear_in_same_query!(
-    edges,
-    nodes,
-    spike_log,
-);
+diesel::allow_tables_to_appear_in_same_query!(edges, nodes, spike_log,);

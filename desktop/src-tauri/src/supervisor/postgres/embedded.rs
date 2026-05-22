@@ -79,13 +79,13 @@ impl EmbeddedPostgres {
                 pg.create_database(DATABASE_NAME)
                     .await
                     .map_err(|e| anyhow::anyhow!("embedded postgres create_database: {e}"))?;
-                tracing::info!(database = DATABASE_NAME, "embedded postgres: database created");
+                tracing::info!(
+                    database = DATABASE_NAME,
+                    "embedded postgres: database created"
+                );
             }
 
-            tracing::info!(
-                port = pg.settings().port,
-                "embedded postgres: started"
-            );
+            tracing::info!(port = pg.settings().port, "embedded postgres: started");
             *guard = Some(pg);
         }
 
