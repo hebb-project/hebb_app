@@ -2,9 +2,9 @@
 //!
 //! Owns the lifecycle of the auxiliary processes the desktop app needs
 //! to run: Postgres, the Rust `core` server, and (optionally) the
-//! Python bridge. Each is wrapped in a [`ManagedProcess`] with its own
-//! restart policy; the [`Supervisor`] orchestrates startup order,
-//! status reporting, and graceful shutdown.
+//! Python bridge. Each child process is wrapped in a [`ManagedProcess`];
+//! the [`Supervisor`] orchestrates startup order, status reporting, and
+//! graceful shutdown.
 //!
 //! ## Status
 //!
@@ -29,8 +29,8 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 pub use core::{wait_for_health, CoreLauncher};
-pub use postgres::{EmbeddedPostgres, ExternalPostgres, PostgresHandle, PostgresProvider};
-pub use process::{ManagedProcess, ProcessConfig, ProcessStatus, RestartPolicy, State};
+pub use postgres::{PostgresHandle, PostgresProvider};
+pub use process::{ManagedProcess, ProcessStatus, State};
 
 use serde::Serialize;
 

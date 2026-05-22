@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
-use super::process::{ManagedProcess, ProcessConfig, RestartPolicy};
+use super::process::{ManagedProcess, ProcessConfig};
 
 // Must match DEFAULT_HTTP in web/lib/cortex-api.ts and default_ws_port in core/src/config.rs.
 const DEFAULT_BIND: &str = "127.0.0.1:7654";
@@ -58,14 +58,10 @@ impl CoreLauncher {
                 // RUST_LOG can be overridden by the desktop's own env.
                 (
                     "RUST_LOG".into(),
-                    std::env::var("CORTEX_CORE_LOG")
-                        .unwrap_or_else(|_| "info,core=debug".into()),
+                    std::env::var("CORTEX_CORE_LOG").unwrap_or_else(|_| "info,core=debug".into()),
                 ),
             ],
             cwd: None,
-            // Restart on crash is reserved for the next commit; the
-            // supervisor honors Never today.
-            restart: RestartPolicy::Never,
         };
         (ManagedProcess::new(cfg), bind)
     }
@@ -115,7 +111,10 @@ fn parse_bind(bind: &str) -> (String, String) {
     if let Some((h, p)) = bind.rsplit_once(':') {
         (h.into(), p.into())
     } else {
-        (DEFAULT_BIND.split(':').next().unwrap().into(), DEFAULT_BIND.rsplit(':').next().unwrap().into())
+        (
+            DEFAULT_BIND.split(':').next().unwrap().into(),
+            DEFAULT_BIND.rsplit(':').next().unwrap().into(),
+        )
     }
 }
 
@@ -126,7 +125,10 @@ fn resolve_binary() -> anyhow::Result<PathBuf> {
     if let Ok(p) = std::env::var("CORTEX_CORE_BIN") {
         let path = PathBuf::from(p);
         if !path.exists() {
-            anyhow::bail!("CORTEX_CORE_BIN set but path does not exist: {}", path.display());
+            anyhow::bail!(
+                "CORTEX_CORE_BIN set but path does not exist: {}",
+                path.display()
+            );
         }
         return Ok(path);
     }
