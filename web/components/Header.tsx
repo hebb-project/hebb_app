@@ -7,10 +7,25 @@ type Props = {
   spikeRate: number;
   uptime: number;
   networkName: string;
+  activeFolder: string | null;
   onOpenStart: () => void;
 };
 
-export function Header({ stateKey, spikeRate, uptime, networkName, onOpenStart }: Props) {
+function shortFolder(path: string | null): string {
+  if (!path) return "transient";
+  const parts = path.split(/[\\/]/).filter(Boolean);
+  if (parts.length <= 2) return path;
+  return `.../${parts.slice(-2).join("/")}`;
+}
+
+export function Header({
+  stateKey,
+  spikeRate,
+  uptime,
+  networkName,
+  activeFolder,
+  onOpenStart,
+}: Props) {
   const preset = STATE_PRESETS[stateKey];
   const online = stateKey !== "offline";
   return (
@@ -37,6 +52,11 @@ export function Header({ stateKey, spikeRate, uptime, networkName, onOpenStart }
         <span className="readout">
           <span className="readout-k">spikes/s</span>
           <span className="readout-v tabnum">{String(spikeRate).padStart(3, " ")}</span>
+        </span>
+        <span className="sep">/</span>
+        <span className="readout" title={activeFolder ?? "no .cortex folder open"}>
+          <span className="readout-k">folder</span>
+          <span className="readout-v">{shortFolder(activeFolder)}</span>
         </span>
         <span className="sep">/</span>
         <span className="readout">
