@@ -297,11 +297,6 @@ tasks:
           pip install -e .
         fi
 
-  py:run:
-    desc: Run main.py
-    cmds:
-      - python main.py
-
   py:snn:
     desc: 'Build + install cortex-snn (Rust → Python) into the active venv via maturin.'
     cmds:
