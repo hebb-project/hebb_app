@@ -12,7 +12,18 @@
 //! (event-driven, broadcast to all), voltage is polled on a per-socket
 //! timer and filtered to the neurons named in the `?nodes=` query, so
 //! each connection only pays for the traces it's actually drawing.
+//!
+//! Lifecycle: each socket runs two tasks — a recv drain and a send
+//! pump. They're joined with `tokio::select!` (not `join!`) so when one
+//! exits the other is aborted immediately. The previous `join!` form
+//! left the 30 Hz voltage poller running until it next tried to send
+//! and discovered the closed sink — wasteful on rapid neuron-selection
+//! changes and a candidate culprit for the "core unreachable after
+//! clicking around" reports before the stale-binary root cause landed.
+//! A tracing span tagged with a per-connection id makes leaks visible
+//! in `RUST_LOG=core=debug`.
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
@@ -20,51 +31,79 @@ use axum::extract::{Query, State};
 use axum::response::IntoResponse;
 use futures_util::{SinkExt, StreamExt};
 use tokio::sync::broadcast::error::RecvError;
+use tracing::Instrument;
 use uuid::Uuid;
 
 use super::AppState;
 use cortex_snn::{VoltageFrame, VoltageSample};
+
+/// Per-connection sequence used in tracing spans so concurrent sockets
+/// can be told apart in logs. Not a security or routing identifier —
+/// just a debug aid.
+fn next_conn_id() -> u64 {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    COUNTER.fetch_add(1, Ordering::Relaxed)
+}
 
 pub async fn ws_spikes(ws: WebSocketUpgrade, State(s): State<AppState>) -> impl IntoResponse {
     ws.on_upgrade(move |socket| spike_socket(socket, s))
 }
 
 async fn spike_socket(socket: WebSocket, state: AppState) {
-    let (mut sender, mut receiver) = socket.split();
-    let mut rx = state.engine.spikes.subscribe();
+    let conn = next_conn_id();
+    let span = tracing::info_span!("ws_spikes", conn);
+    async move {
+        tracing::debug!("connected");
+        let (mut sender, mut receiver) = socket.split();
+        let mut rx = state.engine.spikes.subscribe();
 
-    // Drain inbound (we don't accept client commands on this socket).
-    let recv_task = tokio::spawn(async move {
-        while let Some(msg) = receiver.next().await {
-            match msg {
-                Ok(Message::Close(_)) | Err(_) => break,
-                _ => continue,
+        // Drain inbound (we don't accept client commands on this socket).
+        let mut recv_task = tokio::spawn(async move {
+            while let Some(msg) = receiver.next().await {
+                match msg {
+                    Ok(Message::Close(_)) | Err(_) => break,
+                    _ => continue,
+                }
             }
-        }
-    });
+        });
 
-    let send_task = tokio::spawn(async move {
-        loop {
-            match rx.recv().await {
-                Ok(frame) => {
-                    let payload = match serde_json::to_string(&frame) {
-                        Ok(s) => s,
-                        Err(_) => continue,
-                    };
-                    if sender.send(Message::Text(payload)).await.is_err() {
-                        break;
+        let mut send_task = tokio::spawn(async move {
+            loop {
+                match rx.recv().await {
+                    Ok(frame) => {
+                        let payload = match serde_json::to_string(&frame) {
+                            Ok(s) => s,
+                            Err(_) => continue,
+                        };
+                        if sender.send(Message::Text(payload)).await.is_err() {
+                            break;
+                        }
                     }
+                    Err(RecvError::Lagged(n)) => {
+                        tracing::debug!(lagged = n, "spike receiver lagged; continuing");
+                        continue;
+                    }
+                    Err(RecvError::Closed) => break,
                 }
-                Err(RecvError::Lagged(n)) => {
-                    tracing::debug!(lagged = n, "ws spike receiver lagged; continuing");
-                    continue;
-                }
-                Err(RecvError::Closed) => break,
+            }
+        });
+
+        // Whichever task exits first wins; abort the other so we don't
+        // leak a half-alive connection waiting on the slower side.
+        tokio::select! {
+            _ = &mut recv_task => {
+                send_task.abort();
+                tracing::debug!("recv ended; aborted send");
+            }
+            _ = &mut send_task => {
+                recv_task.abort();
+                tracing::debug!("send ended; aborted recv");
             }
         }
-    });
-
-    let _ = tokio::join!(recv_task, send_task);
+        tracing::debug!("disconnected");
+    }
+    .instrument(span)
+    .await;
 }
 
 /// Default voltage sampling rate. 30 Hz reads smooth on a scrolling
@@ -100,45 +139,69 @@ fn parse_node_ids(raw: &str) -> Vec<Uuid> {
 }
 
 async fn voltage_socket(socket: WebSocket, state: AppState, nodes: Option<Vec<Uuid>>) {
-    let (mut sender, mut receiver) = socket.split();
+    let conn = next_conn_id();
+    let filter_size = nodes.as_ref().map(Vec::len).unwrap_or(0);
+    let span = tracing::info_span!("ws_voltage", conn, filter_size);
+    async move {
+        tracing::debug!("connected");
+        let (mut sender, mut receiver) = socket.split();
 
-    let recv_task = tokio::spawn(async move {
-        while let Some(msg) = receiver.next().await {
-            match msg {
-                Ok(Message::Close(_)) | Err(_) => break,
-                _ => continue,
+        let mut recv_task = tokio::spawn(async move {
+            while let Some(msg) = receiver.next().await {
+                match msg {
+                    Ok(Message::Close(_)) | Err(_) => break,
+                    _ => continue,
+                }
+            }
+        });
+
+        let mut send_task = tokio::spawn(async move {
+            let mut ticker =
+                tokio::time::interval(Duration::from_millis(1000 / VOLTAGE_SAMPLE_HZ.max(1)));
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                ticker.tick().await;
+                let (t_ms, mut pairs) = match state.engine.voltage_snapshot(nodes.clone()).await {
+                    Ok(v) => v,
+                    // Engine actor gone (shutdown) — close the socket.
+                    Err(_) => break,
+                };
+                if nodes.is_none() && pairs.len() > VOLTAGE_UNFILTERED_CAP {
+                    pairs.truncate(VOLTAGE_UNFILTERED_CAP);
+                }
+                let samples = pairs
+                    .into_iter()
+                    .map(|(node_id, v_mv)| VoltageSample { node_id, v_mv })
+                    .collect();
+                let frame = VoltageFrame::new(t_ms, samples);
+                let payload = match serde_json::to_string(&frame) {
+                    Ok(s) => s,
+                    Err(_) => continue,
+                };
+                if sender.send(Message::Text(payload)).await.is_err() {
+                    break;
+                }
+            }
+        });
+
+        // Critical for voltage in particular: the send loop polls at
+        // 30 Hz forever, so a client disconnect that's only noticed by
+        // the recv side must abort the send task immediately. Without
+        // this, rapid neuron-selection churn (each click opens a new
+        // socket) leaves N stale 30 Hz pollers hammering the engine
+        // actor until each separately tries to send and fails.
+        tokio::select! {
+            _ = &mut recv_task => {
+                send_task.abort();
+                tracing::debug!("recv ended; aborted send");
+            }
+            _ = &mut send_task => {
+                recv_task.abort();
+                tracing::debug!("send ended; aborted recv");
             }
         }
-    });
-
-    let send_task = tokio::spawn(async move {
-        let mut ticker =
-            tokio::time::interval(Duration::from_millis(1000 / VOLTAGE_SAMPLE_HZ.max(1)));
-        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        loop {
-            ticker.tick().await;
-            let (t_ms, mut pairs) = match state.engine.voltage_snapshot(nodes.clone()).await {
-                Ok(v) => v,
-                // Engine actor gone (shutdown) — close the socket.
-                Err(_) => break,
-            };
-            if nodes.is_none() && pairs.len() > VOLTAGE_UNFILTERED_CAP {
-                pairs.truncate(VOLTAGE_UNFILTERED_CAP);
-            }
-            let samples = pairs
-                .into_iter()
-                .map(|(node_id, v_mv)| VoltageSample { node_id, v_mv })
-                .collect();
-            let frame = VoltageFrame::new(t_ms, samples);
-            let payload = match serde_json::to_string(&frame) {
-                Ok(s) => s,
-                Err(_) => continue,
-            };
-            if sender.send(Message::Text(payload)).await.is_err() {
-                break;
-            }
-        }
-    });
-
-    let _ = tokio::join!(recv_task, send_task);
+        tracing::debug!("disconnected");
+    }
+    .instrument(span)
+    .await;
 }
