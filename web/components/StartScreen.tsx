@@ -38,6 +38,7 @@ export type NetworkRecord = {
   lastOpenedAt: string;
   nodeEstimate?: number;
   edgeEstimate?: number;
+  folderStatus?: "unknown" | "available" | "missing";
 };
 
 type Props = {
@@ -56,6 +57,7 @@ const DEMO_NETWORK: NetworkRecord = {
   createdAt: "2026-05-14T00:00:00.000Z",
   lastOpenedAt: "2026-05-14T00:00:00.000Z",
   nodeEstimate: 140,
+  folderStatus: "available",
 };
 
 /**
@@ -112,6 +114,7 @@ function readNetworks(): NetworkRecord[] {
           hhConfig: item.hhConfig ?? null,
           folderPath: item.folderPath ?? item.environmentPath ?? item.knowledgeGraphPath,
           hasMetadata: Boolean(item.hasMetadata),
+          folderStatus: item.folderStatus ?? "unknown",
         };
       });
     }
@@ -139,6 +142,10 @@ function shortPath(path: string): string {
 function nameFromPath(path: string, fallback: string): string {
   const parts = path.split(/[\\/]/).filter(Boolean);
   return parts.at(-1) || fallback;
+}
+
+function sortByRecent(a: NetworkRecord, b: NetworkRecord): number {
+  return Date.parse(b.lastOpenedAt) - Date.parse(a.lastOpenedAt);
 }
 
 function cortexTypeBody(
@@ -254,14 +261,60 @@ export function StartScreen({ onOpen }: Props) {
     setNetworks(readNetworks());
   }, []);
 
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    const candidates = readNetworks().filter((network) => network.origin !== "demo");
+    if (candidates.length === 0) return;
+    let cancelled = false;
+    const refreshStatuses = async () => {
+      const inspected = await Promise.all(
+        candidates.map(async (network) => {
+          const info = await inspectCortexFolder(network.folderPath);
+          const next: NetworkRecord = {
+            ...network,
+            folderStatus: info ? "available" : "missing",
+          };
+          if (info) {
+            next.hasMetadata = info.has_cortex;
+            if (info.metadata?.cortex_type) {
+              next.cortexType = info.metadata.cortex_type as CortexTypeSlug;
+              next.origin = next.cortexType;
+            }
+            if (info.node_count !== null) next.nodeEstimate = info.node_count;
+            if (info.edge_count !== null) next.edgeEstimate = info.edge_count;
+          }
+          return next;
+        }),
+      );
+      if (cancelled) return;
+      const byId = new Map(inspected.map((network) => [network.id, network]));
+      setNetworks((current) => {
+        const next = current.map((network) => byId.get(network.id) ?? network);
+        writeNetworks(next);
+        return next;
+      });
+    };
+    void refreshStatuses();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const canCreate = useMemo(() => {
     if (pending) return false;
     return Boolean(folderPath.trim());
   }, [folderPath, pending]);
 
+  const sortedNetworks = useMemo(
+    () => [...networks].sort(sortByRecent),
+    [networks],
+  );
+  const recentNetworks = sortedNetworks.slice(0, 2);
+  const historyNetworks = sortedNetworks.slice(2);
+
   function saveNetworkRecord(network: NetworkRecord) {
     const updated = [
-      { ...network, lastOpenedAt: new Date().toISOString() },
+      { ...network, lastOpenedAt: new Date().toISOString(), folderStatus: "available" as const },
       ...networks.filter((item) => item.id !== network.id),
     ];
     setNetworks(updated);
@@ -270,6 +323,10 @@ export function StartScreen({ onOpen }: Props) {
   }
 
   async function persistAndOpen(network: NetworkRecord) {
+    if (network.folderStatus === "missing") {
+      setStatus(`${network.name} folder was moved or deleted.`);
+      return;
+    }
     // Non-demo networks split into two regimes today:
     // - knowledge-graph: still DB-backed; configure + ingest path.
     // - lif/hh: folder-backed; opening the specific `.cortex/` root is
@@ -328,17 +385,21 @@ export function StartScreen({ onOpen }: Props) {
       // first added. This is what persists nodeEstimate/edgeEstimate from
       // the actual topology.json.
       const info = await inspectCortexFolder(selected);
+      const refreshed: NetworkRecord = {
+        ...existing,
+        folderStatus: info || !isTauriRuntime() ? "available" : "missing",
+      };
       if (info) {
-        existing.hasMetadata = info.has_cortex;
+        refreshed.hasMetadata = info.has_cortex;
         if (info.metadata?.cortex_type) {
-          existing.cortexType = info.metadata.cortex_type as CortexTypeSlug;
-          existing.origin = existing.cortexType;
+          refreshed.cortexType = info.metadata.cortex_type as CortexTypeSlug;
+          refreshed.origin = refreshed.cortexType;
         }
-        if (info.node_count !== null) existing.nodeEstimate = info.node_count;
-        if (info.edge_count !== null) existing.edgeEstimate = info.edge_count;
+        if (info.node_count !== null) refreshed.nodeEstimate = info.node_count;
+        if (info.edge_count !== null) refreshed.edgeEstimate = info.edge_count;
       }
       try {
-        await persistAndOpen(existing);
+        await persistAndOpen(refreshed);
       } catch {
         // Status is set by persistAndOpen; keep the start screen active.
       }
@@ -363,6 +424,7 @@ export function StartScreen({ onOpen }: Props) {
           // actually in the folder rather than "0 nodes" defaults.
           nodeEstimate: info.node_count ?? undefined,
           edgeEstimate: info.edge_count ?? undefined,
+          folderStatus: "available",
         });
       } catch {
         // Status is set by persistAndOpen; keep the start screen active.
@@ -400,6 +462,7 @@ export function StartScreen({ onOpen }: Props) {
       hasMetadata: false,
       createdAt: now,
       lastOpenedAt: now,
+      folderStatus: "available",
     };
 
     try {
@@ -500,11 +563,12 @@ export function StartScreen({ onOpen }: Props) {
             <button className="open-folder-btn" type="button" onClick={openFolder}>
               Open Network Folder...
             </button>
-            <div className="network-list">
-              {networks.map((network) => (
+            <div className="start-section-subhd mono">recent</div>
+            <div className="network-recent-list">
+              {recentNetworks.map((network) => (
                 <button
                   key={network.id}
-                  className="network-card"
+                  className={`network-card ${network.folderStatus === "missing" ? "missing" : ""}`}
                   onClick={() => {
                     void persistAndOpen(network).catch(() => {
                       // `persistAndOpen` already surfaces the actionable
@@ -519,12 +583,44 @@ export function StartScreen({ onOpen }: Props) {
                   </div>
                   <div className="network-card-name">{network.name}</div>
                   <div className="network-card-path mono">{shortPath(network.folderPath)}</div>
-                  <div className="network-card-path mono">
-                    {network.hasMetadata ? "metadata detected" : "metadata pending"}
+                  <div className="network-card-path mono network-card-status">
+                    {network.folderStatus === "missing"
+                      ? "⚠ folder moved/deleted"
+                      : network.hasMetadata ? "metadata detected" : "metadata pending"}
                   </div>
                 </button>
               ))}
             </div>
+
+            {historyNetworks.length > 0 && (
+              <>
+                <div className="start-section-subhd history mono">all previous</div>
+                <div className="network-history-list">
+                  {historyNetworks.map((network) => (
+                    <button
+                      key={network.id}
+                      className={`network-row ${network.folderStatus === "missing" ? "missing" : ""}`}
+                      onClick={() => {
+                        void persistAndOpen(network).catch(() => {
+                          // Status is already set by persistAndOpen.
+                        });
+                      }}
+                    >
+                      <span className="network-row-kind mono">{network.cortexType.replace("-", " ")}</span>
+                      <span className="network-row-main">
+                        <span className="network-row-name">{network.name}</span>
+                        <span className="network-row-path mono">{shortPath(network.folderPath)}</span>
+                      </span>
+                      <span className="network-row-meta mono">
+                        {network.folderStatus === "missing"
+                          ? "⚠ moved/deleted"
+                          : `${network.nodeEstimate ?? 0} nodes`}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
           </section>
 
           <section className="start-create">
