@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Cancel in-flight runs for the same branch when a new commit lands.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    name: rust
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: cargo cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          # Scope by workspace so cortex-snn/core/desktop share caches.
+          shared-key: workspace
+          cache-targets: true
+          cache-on-failure: true
+
+      # Build deps for diesel + tauri/gtk so `cargo check -p core` and
+      # any future desktop CI can link. Cheap on cached runners.
+      - name: install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpq-dev
+
+      # TODO: enable `cargo fmt --all -- --check` once main has been
+      # swept with `cargo fmt`. Pre-existing diff is ~30 files; landing
+      # the formatter sweep as its own PR keeps this CI bring-up clean.
+
+      # `core/Cargo.toml` carries `[lints.rust] warnings = "deny"`, so
+      # this also enforces the no-new-warnings invariant from PR #54.
+      - name: check (cortex-snn with disk feature)
+        run: cargo check -p cortex-snn --features disk --all-targets
+
+      - name: check (core)
+        run: cargo check -p core --all-targets
+
+      # TODO: enable clippy once the 3 pre-existing nits in `cortex-snn`
+      # (two derivable-impl suggestions in HhIntegrator, one manual
+      # !RangeInclusive::contains) are cleaned up. Until then `check`
+      # plus the deny-warnings gate in `core/Cargo.toml` catch all
+      # regressions in code touched after this CI bring-up.
+
+      - name: test (cortex-snn)
+        run: cargo test -p cortex-snn --features disk
+
+      - name: test (core)
+        run: cargo test -p core
+
+  web:
+    name: web
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: install
+        run: npm ci
+
+      - name: typecheck
+        run: npx tsc --noEmit
+
+      - name: lint
+        run: npm run lint --if-present
+
+      - name: build
+        run: npm run build
