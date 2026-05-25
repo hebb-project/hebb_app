@@ -15,7 +15,7 @@ pub mod weight_persist;
 // the WS handler, etc.) doesn't need to know they originate in
 // cortex-snn. Lets us swap the substrate's serialization layer later
 // without churn across the handler layer.
-pub use cortex_snn::engine::events::{SpikeEvent, SpikeFrame, WeightDelta, WeightFrame};
+pub use cortex_snn::engine::events::{SpikeFrame, WeightDelta, WeightFrame};
 pub use cortex_snn::engine::sim::SimEngine;
 pub use spike_persist::spawn_spike_persister;
 pub use weight_persist::spawn_weight_persister;

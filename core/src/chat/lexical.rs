@@ -11,7 +11,6 @@
 //! is plugged in above it via [`super::make_encoder`].
 
 use async_trait::async_trait;
-use uuid::Uuid;
 
 use super::{deterministic_reply, Activation, ChatEncoder, NodeRef, Stimulus};
 
@@ -126,6 +125,7 @@ const STOPWORDS: &[&str] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
+    use uuid::Uuid;
 
     fn node(label: &str, body: &str, node_type: &str) -> NodeRef {
         NodeRef {

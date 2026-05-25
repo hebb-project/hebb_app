@@ -81,6 +81,9 @@ fn default_edge_type() -> String {
 
 // ─── spike_log ────────────────────────────────────────────────────────────
 
+// Read row for spike_log. Inserts go through `NewSpike`; reads are
+// planned for replay/inspection tooling but not wired yet.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Queryable, Selectable, Serialize)]
 #[diesel(table_name = spike_log)]
 pub struct SpikeRow {

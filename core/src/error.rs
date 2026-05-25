@@ -13,6 +13,10 @@ pub enum CoreError {
     #[error("invalid argument: {0}")]
     BadRequest(String),
 
+    // Reserved for future 409 paths (duplicate cortex names, concurrent
+    // edits). Not constructed yet but kept so handlers can return it
+    // once the rules are nailed down.
+    #[allow(dead_code)]
     #[error("conflict: {0}")]
     Conflict(String),
 

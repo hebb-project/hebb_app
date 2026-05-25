@@ -9,6 +9,9 @@ use std::path::PathBuf;
 pub struct CoreConfig {
     pub database_url: String,
 
+    // Reserved for a future on-disk model artifact path. Parsed from env
+    // so existing deployments don't break, but not yet read by any code.
+    #[allow(dead_code)]
     #[serde(default = "default_model_store_path")]
     pub model_store_path: PathBuf,
 
@@ -21,6 +24,10 @@ pub struct CoreConfig {
     #[serde(default = "default_vault_path")]
     pub vault_path: PathBuf,
 
+    // Reserved for axum CORS layer config. Today CORS is wired via the
+    // tower-http defaults; this field exists so a future tightening of
+    // the policy is one env var away.
+    #[allow(dead_code)]
     #[serde(default = "default_cors_allow_origin")]
     pub cors_allow_origin: String,
 
@@ -93,6 +100,10 @@ impl CoreConfig {
         format!("{}:{}", self.ws_host, self.ws_port)
     }
 
+    // Convenience used by tests / future schedulers; the engine actor
+    // computes its own `dt_ms` from `tick_dur` so this isn't on the hot
+    // path today.
+    #[allow(dead_code)]
     pub fn dt_ms(&self) -> f32 {
         1000.0 / self.tick_hz as f32
     }

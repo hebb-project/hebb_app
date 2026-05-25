@@ -72,3 +72,10 @@ async-trait = "0.1"
 tokio = { version = "1", features = ["full", "test-util"] }
 
 # Release profile is set at the workspace root (../Cargo.toml).
+
+# Deny new warnings at compile time so future PRs cannot silently
+# accumulate dead code or unused imports. Intentional dead code
+# (e.g. the agent harness skeleton) carries an explicit #[allow] with
+# a TODO pointing at the follow-up PR.
+[lints.rust]
+warnings = "deny"

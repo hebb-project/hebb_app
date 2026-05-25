@@ -18,6 +18,13 @@
 //! Nothing in this module performs I/O on its own. Tools call into the
 //! existing `engine::SimHandle` and `Cortex` handle for that.
 
+// TODO(agent-tools): tool impls and MCP transport land in follow-up PRs.
+// Until then the skeleton items here are unused at runtime; we silence
+// dead-code + unused-import warnings at the module boundary rather than
+// per item so the design intent stays compact and the warning surface
+// stays useful for catching *unintentional* dead code elsewhere in `core`.
+#![allow(dead_code, unused_imports)]
+
 pub mod permission;
 pub mod registry;
 pub mod tool;

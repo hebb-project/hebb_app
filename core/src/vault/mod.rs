@@ -5,4 +5,4 @@
 
 pub mod obsidian;
 
-pub use obsidian::{parse_vault, ParsedEdge, ParsedNode, VaultParseSummary};
+pub use obsidian::{parse_vault, VaultParseSummary};
