@@ -44,6 +44,13 @@ export type CortexWeightFrame = {
   deltas: CortexWeightDelta[];
 };
 
+export type CortexVoltageSample = { node_id: string; v_mV: number };
+export type CortexVoltageFrame = {
+  v: number;
+  t_ms: number;
+  samples: CortexVoltageSample[];
+};
+
 export type CortexParams = Record<string, unknown>;
 
 export type CortexSearchResult = {
@@ -89,6 +96,17 @@ export function cortexWeightsWsUrl(override?: string): string {
   if (override) return override;
   const http = cortexHttpBase();
   return http.replace(/^http/, "ws") + "/ws/weights";
+}
+
+/// Voltage stream URL. `nodes` filters to specific neuron ids; omit to
+/// sample all (server caps the unfiltered set).
+export function cortexVoltageWsUrl(nodes?: string[], override?: string): string {
+  const base = override ?? cortexHttpBase().replace(/^http/, "ws") + "/ws/voltage";
+  if (nodes && nodes.length > 0) {
+    const q = encodeURIComponent(nodes.join(","));
+    return `${base}?nodes=${q}`;
+  }
+  return base;
 }
 
 type CortexErrorBody = {

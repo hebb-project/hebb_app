@@ -69,6 +69,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/vault/ingest", post(vault::post_ingest))
         .route("/api/graph/weights", get(weights::get_weights_snapshot))
         .route("/ws/spikes", get(ws::ws_spikes))
+        .route("/ws/voltage", get(ws::ws_voltage))
         .route("/ws/weights", get(weights::ws_weights))
         .layer(cors)
         .layer(TraceLayer::new_for_http())

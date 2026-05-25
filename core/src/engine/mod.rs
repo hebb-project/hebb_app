@@ -67,6 +67,14 @@ pub enum EngineCommand {
     Snapshot(oneshot::Sender<EngineSnapshot>),
     /// One-shot weight snapshot: returns Vec<(edge_id, weight)>.
     WeightSnapshot(oneshot::Sender<Vec<(Uuid, f32)>>),
+    /// One-shot membrane-potential snapshot for the `/ws/voltage` stream.
+    /// `nodes = Some(ids)` samples only those (preserving order, skipping
+    /// unknown); `None` samples every neuron. Reply carries the engine
+    /// clock so each frame is self-consistent: `(t_ms, [(node_id, v_mV)])`.
+    VoltageSnapshot {
+        nodes: Option<Vec<Uuid>>,
+        reply: oneshot::Sender<(f64, Vec<(Uuid, f32)>)>,
+    },
     /// Swap the engine to a different cortex type. Wipes neuron + synapse
     /// state — you can't mix LIF and HH neurons in the same `SimEngine`
     /// without ambiguous input-current units, so reconfigure is a reset.
@@ -285,6 +293,21 @@ impl SimHandle {
         let (tx, rx) = oneshot::channel();
         self.cmd_tx
             .send(EngineCommand::WeightSnapshot(tx))
+            .await
+            .map_err(|_| "engine offline")?;
+        rx.await.map_err(|_| "engine dropped reply")
+    }
+
+    /// Sample membrane potentials for the live voltage stream. `nodes`
+    /// filters to a specific set (the UI's selected neurons); `None`
+    /// samples all.
+    pub async fn voltage_snapshot(
+        &self,
+        nodes: Option<Vec<Uuid>>,
+    ) -> Result<(f64, Vec<(Uuid, f32)>), &'static str> {
+        let (tx, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(EngineCommand::VoltageSnapshot { nodes, reply: tx })
             .await
             .map_err(|_| "engine offline")?;
         rx.await.map_err(|_| "engine dropped reply")
@@ -603,6 +626,10 @@ pub fn spawn_engine(tick_hz: u32) -> (SimHandle, tokio::task::JoinHandle<()>) {
                         }
                         EngineCommand::WeightSnapshot(reply) => {
                             let _ = reply.send(engine.weight_snapshot());
+                        }
+                        EngineCommand::VoltageSnapshot { nodes, reply } => {
+                            let samples = engine.sample_voltages(nodes.as_deref());
+                            let _ = reply.send((engine.t_ms, samples));
                         }
                         EngineCommand::Configure { cortex_type, reply } => {
                             tracing::info!(

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { STATE_PRESETS, type Palette, type StateKey } from "@/lib/state";
 import {
   cortexHttpBase,
+  cortexVoltageWsUrl,
   cortexWeightsWsUrl,
   cortexWsUrl,
   createGraphEdge,
@@ -18,6 +19,7 @@ import {
   type CortexNode,
   type CortexParams,
   type CortexSpikeFrame,
+  type CortexVoltageFrame,
   type CortexWeightFrame,
 } from "@/lib/cortex-api";
 
@@ -365,6 +367,13 @@ export function ConnectomeView({
   const [paramValues, setParamValues] = useState<CortexParams | null>(null);
   const [paramDrafts, setParamDrafts] = useState<Record<string, string>>({});
   const [paramStatus, setParamStatus] = useState<string>("select a node or edge");
+  // Live membrane-potential trace for the selected neuron. The samples
+  // accumulate in a ref (drawn imperatively to a canvas, never via React
+  // state — 30 Hz reconciliation would thrash) while a small status
+  // string drives the readout text.
+  const voltageCanvasRef = useRef<HTMLCanvasElement>(null);
+  const voltageBufRef = useRef<{ t: number; v: number }[]>([]);
+  const [voltageStatus, setVoltageStatus] = useState<string>("idle");
 
   const colors = useMemo<Colors>(
     () => ({
@@ -431,6 +440,92 @@ export function ConnectomeView({
     void load();
     return () => {
       cancelled = true;
+    };
+  }, [live, cortexHttp, paramTarget]);
+
+  // Live V(t) trace: subscribe to /ws/voltage filtered to the selected
+  // neuron, accumulate a bounded ring buffer, and draw it imperatively.
+  useEffect(() => {
+    voltageBufRef.current = [];
+    if (!live || !paramTarget || paramTarget.kind !== "node") {
+      setVoltageStatus(live ? "select a neuron" : "live mode required");
+      return;
+    }
+    const MAX_POINTS = 600; // ~20 s at 30 Hz
+    const nodeId = paramTarget.id;
+    const base = (cortexHttp ?? cortexHttpBase()).replace(/^http/, "ws") + "/ws/voltage";
+    const url = cortexVoltageWsUrl([nodeId], base);
+    let ws: WebSocket | null = null;
+    let closed = false;
+
+    const draw = () => {
+      const canvas = voltageCanvasRef.current;
+      if (!canvas) return;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      const w = canvas.width;
+      const h = canvas.height;
+      ctx.clearRect(0, 0, w, h);
+      const buf = voltageBufRef.current;
+      if (buf.length < 2) return;
+      let lo = Infinity;
+      let hi = -Infinity;
+      for (const p of buf) {
+        if (p.v < lo) lo = p.v;
+        if (p.v > hi) hi = p.v;
+      }
+      // Pad a flat trace so a resting neuron doesn't render as a line on
+      // the floor; keep at least a few mV of visible range.
+      if (hi - lo < 4) {
+        const mid = (hi + lo) / 2;
+        lo = mid - 2;
+        hi = mid + 2;
+      }
+      const pad = 6;
+      const sx = (i: number) => pad + (i / (buf.length - 1)) * (w - 2 * pad);
+      const sy = (v: number) => pad + (1 - (v - lo) / (hi - lo)) * (h - 2 * pad);
+      ctx.beginPath();
+      ctx.moveTo(sx(0), sy(buf[0].v));
+      for (let i = 1; i < buf.length; i++) ctx.lineTo(sx(i), sy(buf[i].v));
+      ctx.strokeStyle = "rgba(125,249,255,0.9)";
+      ctx.lineWidth = 1.4;
+      ctx.stroke();
+    };
+
+    setVoltageStatus("connecting...");
+    try {
+      ws = new WebSocket(url);
+    } catch {
+      setVoltageStatus("voltage stream unavailable");
+      return;
+    }
+    ws.onopen = () => {
+      if (!closed) setVoltageStatus("streaming");
+    };
+    ws.onmessage = (ev) => {
+      let frame: CortexVoltageFrame;
+      try {
+        frame = JSON.parse(ev.data as string);
+      } catch {
+        return;
+      }
+      const sample = frame.samples.find((s) => s.node_id === nodeId);
+      if (!sample) return;
+      const buf = voltageBufRef.current;
+      buf.push({ t: frame.t_ms, v: sample.v_mV });
+      if (buf.length > MAX_POINTS) buf.splice(0, buf.length - MAX_POINTS);
+      draw();
+    };
+    ws.onerror = () => {
+      if (!closed) setVoltageStatus("voltage stream error");
+    };
+    ws.onclose = () => {
+      if (!closed) setVoltageStatus("stream closed");
+    };
+
+    return () => {
+      closed = true;
+      ws?.close();
     };
   }, [live, cortexHttp, paramTarget]);
 
@@ -1619,6 +1714,36 @@ export function ConnectomeView({
                   ) : (
                     <div className="mono" style={{ color: "rgba(255,255,255,0.42)", fontSize: 11 }}>
                       no parameters loaded
+                    </div>
+                  )}
+                  {paramTarget.kind === "node" && (
+                    <div style={{ marginTop: 16 }}>
+                      <div
+                        className="mono"
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          fontSize: 10,
+                          textTransform: "uppercase",
+                          color: "rgba(125,249,255,0.7)",
+                          marginBottom: 6,
+                        }}
+                      >
+                        <span>V(t) membrane</span>
+                        <span style={{ color: "rgba(255,255,255,0.45)" }}>{voltageStatus}</span>
+                      </div>
+                      <canvas
+                        ref={voltageCanvasRef}
+                        width={260}
+                        height={96}
+                        style={{
+                          width: "100%",
+                          height: 96,
+                          background: "rgba(3,7,18,0.8)",
+                          border: "1px solid rgba(125,249,255,0.18)",
+                          borderRadius: 6,
+                        }}
+                      />
                     </div>
                   )}
                 </>
