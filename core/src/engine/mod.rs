@@ -1611,7 +1611,14 @@ fn open_folder_into_engine(
         engine.add_neuron_with_kind(n.id, &kind);
     }
     for e in &topology.edges {
-        engine.add_edge(e.id, e.pre, e.post, e.init_weight);
+        // Honor the per-edge synapse kind from topology (stdp vs
+        // plastic-synapse). Unknown kinds fail the open rather than
+        // silently falling back to STDP — a typo in topology.json should
+        // be loud. See cortex_snn::SynapseKind.
+        let spec = topology.effective_synapse(e);
+        let kind =
+            cortex_snn::SynapseKind::from_spec(spec).map_err(|m| format!("edge {}: {}", e.id, m))?;
+        engine.add_edge_with_kind(e.id, e.pre, e.post, e.init_weight, &kind);
     }
 
     // Apply persisted weights on top of the init_weight values. Missing
