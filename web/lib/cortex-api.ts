@@ -159,6 +159,16 @@ export async function createGraphNode(
   return unwrap(r);
 }
 
+export async function deleteGraphNode(
+  nodeId: string,
+  base?: string,
+): Promise<void> {
+  const r = await fetch(`${cortexHttpBase(base)}/api/graph/nodes/${nodeId}`, {
+    method: "DELETE",
+  });
+  await unwrap(r);
+}
+
 export async function createGraphEdge(
   edge: NewCortexEdge,
   base?: string,

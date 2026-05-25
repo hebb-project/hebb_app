@@ -9,6 +9,7 @@ import {
   cortexWsUrl,
   createGraphEdge,
   createGraphNode,
+  deleteGraphNode,
   fetchNodeParams,
   fetchGraph,
   fetchSynapseParams,
@@ -76,6 +77,12 @@ type ParamTarget =
 type HitTarget =
   | { kind: "node"; id: string; label?: string }
   | { kind: "synapse"; id: string; label?: string };
+
+type ContextMenuState = {
+  x: number;
+  y: number;
+  target: HitTarget;
+} | null;
 
 type Colors = {
   bg: string;
@@ -375,6 +382,7 @@ export function ConnectomeView({
   const [paramValues, setParamValues] = useState<CortexParams | null>(null);
   const [paramDrafts, setParamDrafts] = useState<Record<string, string>>({});
   const [paramStatus, setParamStatus] = useState<string>("select a node or edge");
+  const [contextMenu, setContextMenu] = useState<ContextMenuState>(null);
   const [vizPaused, setVizPaused] = useState(false);
   const vizPausedRef = useRef(false);
   // Live membrane-potential trace for the selected neuron. The samples
@@ -900,6 +908,39 @@ export function ConnectomeView({
     return () => {
       wrap.removeEventListener("pointerdown", onDown);
       wrap.removeEventListener("click", onClick);
+    };
+  }, [live]);
+
+  // ── Right-click menu for node/synapse actions. ────────────────────
+  useEffect(() => {
+    if (!live) return;
+    const wrap = wrapRef.current;
+    const canvas = canvasRef.current;
+    if (!wrap || !canvas) return;
+
+    const onContextMenu = (e: MouseEvent) => {
+      if (buildModeRef.current) return;
+      const rect = canvas.getBoundingClientRect();
+      const sx = e.clientX - rect.left;
+      const sy = e.clientY - rect.top;
+      const v = viewRef.current;
+      const wx = (sx - v.tx) / v.scale;
+      const wy = (sy - v.ty) / v.scale;
+      const hit = (canvas as unknown as { _inspectHit?: (x: number, y: number) => HitTarget | null })
+        ._inspectHit?.(wx, wy);
+      if (!hit) return;
+      e.preventDefault();
+      setContextMenu({ x: e.clientX, y: e.clientY, target: hit });
+    };
+    const closeMenu = () => setContextMenu(null);
+
+    wrap.addEventListener("contextmenu", onContextMenu);
+    window.addEventListener("pointerdown", closeMenu);
+    window.addEventListener("keydown", closeMenu);
+    return () => {
+      wrap.removeEventListener("contextmenu", onContextMenu);
+      window.removeEventListener("pointerdown", closeMenu);
+      window.removeEventListener("keydown", closeMenu);
     };
   }, [live]);
 
@@ -1513,6 +1554,23 @@ export function ConnectomeView({
   const preset = STATE_PRESETS[stateKey];
   const overlayLabel = live ? "" : "connectome · placeholder";
   const buildModeEnabled = live && buildMode;
+  const deleteContextNode = async () => {
+    if (!contextMenu || contextMenu.target.kind !== "node") return;
+    const target = contextMenu.target;
+    setContextMenu(null);
+    setParamStatus(`deleting ${target.label ?? target.id.slice(0, 8)}...`);
+    try {
+      await deleteGraphNode(target.id, cortexHttp);
+      if (paramTarget?.kind === "node" && paramTarget.id === target.id) {
+        setParamTarget(null);
+      }
+      await refreshGraph();
+      setParamStatus("node deleted");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setParamStatus(`delete failed: ${message}`);
+    }
+  };
 
   return (
     <main className="panel connectome">
@@ -1793,6 +1851,66 @@ export function ConnectomeView({
               )}
             </div>
           </aside>
+        )}
+        {contextMenu && (
+          <div
+            className="mono"
+            onPointerDown={(e) => e.stopPropagation()}
+            style={{
+              position: "fixed",
+              left: contextMenu.x,
+              top: contextMenu.y,
+              minWidth: 168,
+              background: "rgba(10,13,18,0.97)",
+              border: "1px solid rgba(125,249,255,0.22)",
+              borderRadius: 6,
+              boxShadow: "0 14px 46px rgba(0,0,0,0.55)",
+              padding: 5,
+              zIndex: 30,
+              color: "rgba(229,231,235,0.9)",
+              fontSize: 11,
+            }}
+          >
+            <div
+              style={{
+                padding: "6px 8px 7px",
+                color: "rgba(125,249,255,0.6)",
+                borderBottom: "1px solid rgba(125,249,255,0.12)",
+                marginBottom: 4,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {contextMenu.target.kind} · {contextMenu.target.label ?? contextMenu.target.id.slice(0, 8)}
+            </div>
+            <button
+              className="zoom-btn"
+              style={{ width: "100%", justifyContent: "flex-start", marginBottom: 3 }}
+              onClick={() => {
+                setParamTarget(contextMenu.target);
+                setContextMenu(null);
+              }}
+            >
+              inspect settings
+            </button>
+            {contextMenu.target.kind === "node" && (
+              <button
+                className="zoom-btn"
+                style={{
+                  width: "100%",
+                  justifyContent: "flex-start",
+                  color: "rgba(255,93,143,0.95)",
+                  borderColor: "rgba(255,93,143,0.24)",
+                }}
+                onClick={() => {
+                  void deleteContextNode();
+                }}
+              >
+                delete neuron
+              </button>
+            )}
+          </div>
         )}
         <div className="connectome-overlay">
           <div className="overlay-run-controls mono">
