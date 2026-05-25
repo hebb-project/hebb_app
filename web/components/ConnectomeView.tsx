@@ -366,7 +366,7 @@ export function ConnectomeView({
   const viewRef = useRef<View>({ scale: 1, tx: 0, ty: 0 });
   const [zoomPct, setZoomPct] = useState(100);
   const [panning, setPanning] = useState(false);
-  const [wsState, setWsState] = useState<"idle" | "connecting" | "open" | "closed">(
+  const [, setWsState] = useState<"idle" | "connecting" | "open" | "closed">(
     live ? "connecting" : "idle",
   );
   const [graphMeta, setGraphMeta] = useState<{ nodes: number; edges: number } | null>(null);

@@ -138,6 +138,40 @@ html, body {
   background: var(--border-2);
 }
 
+.sidebar-resizer {
+  flex: 0 0 8px;
+  align-self: stretch;
+  position: relative;
+  background: var(--panel-2);
+  border: 0;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+  z-index: 8;
+}
+.sidebar-resizer::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 2px;
+  background: rgba(125,249,255,0.14);
+  opacity: 0.5;
+  transition: background 120ms, opacity 120ms, box-shadow 120ms;
+}
+.sidebar-resizer:hover::before,
+.sidebar-resizer:focus-visible::before,
+.is-resizing-sidebar .sidebar-resizer::before {
+  background: var(--cyan);
+  opacity: 1;
+  box-shadow: 0 0 10px rgba(125,249,255,0.45);
+}
+.is-resizing-sidebar {
+  cursor: col-resize;
+  user-select: none;
+}
+
 /* ── Start screen ──────────────────────────────────────────────────────── */
 .start-screen {
   min-height: 100vh;

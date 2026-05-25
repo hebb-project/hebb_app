@@ -1,7 +1,13 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useState,
+  type KeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { ChatPanel } from "@/components/ChatPanel";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Header } from "@/components/Header";
@@ -41,6 +47,9 @@ const ConnectomeView = dynamic(
 
 const CHAT_WIDTH = 320;
 const SEARCH_WIDTH = 360;
+const SIDEBAR_MIN_WIDTH = 260;
+const SIDEBAR_MAX_WIDTH = 620;
+const SIDEBAR_KEYBOARD_STEP = 24;
 const NODE_COUNT = 140;
 // Enable live mode by default; flip off with NEXT_PUBLIC_CORTEX_LIVE=0.
 const LIVE = process.env.NEXT_PUBLIC_CORTEX_LIVE !== "0";
@@ -52,6 +61,60 @@ export default function Home() {
   const [uptime, setUptime] = useState(347);
   const [activeFolder, setActiveFolder] = useState<string | null>(null);
   const [reopenPending, setReopenPending] = useState(false);
+  const [chatWidth, setChatWidth] = useState(CHAT_WIDTH);
+  const [searchWidth, setSearchWidth] = useState(SEARCH_WIDTH);
+
+  const clampSidebarWidth = useCallback((width: number) => (
+    Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, Math.round(width)))
+  ), []);
+
+  const resizeByKeyboard = useCallback((
+    side: "left" | "right",
+    event: KeyboardEvent<HTMLDivElement>,
+  ) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const direction = event.key === "ArrowRight" ? 1 : -1;
+    if (side === "left") {
+      setChatWidth((width) => clampSidebarWidth(width + direction * SIDEBAR_KEYBOARD_STEP));
+    } else {
+      setSearchWidth((width) => clampSidebarWidth(width - direction * SIDEBAR_KEYBOARD_STEP));
+    }
+  }, [clampSidebarWidth]);
+
+  const beginSidebarResize = useCallback((
+    side: "left" | "right",
+    event: ReactPointerEvent<HTMLDivElement>,
+  ) => {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = side === "left" ? chatWidth : searchWidth;
+    const target = event.currentTarget;
+    target.setPointerCapture(event.pointerId);
+    document.body.classList.add("is-resizing-sidebar");
+
+    const updateWidth = (clientX: number) => {
+      const delta = clientX - startX;
+      const nextWidth = side === "left" ? startWidth + delta : startWidth - delta;
+      if (side === "left") {
+        setChatWidth(clampSidebarWidth(nextWidth));
+      } else {
+        setSearchWidth(clampSidebarWidth(nextWidth));
+      }
+    };
+
+    const handlePointerMove = (moveEvent: globalThis.PointerEvent) => updateWidth(moveEvent.clientX);
+    const handlePointerUp = () => {
+      document.body.classList.remove("is-resizing-sidebar");
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerUp);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("pointercancel", handlePointerUp);
+  }, [chatWidth, clampSidebarWidth, searchWidth]);
 
   useEffect(() => {
     if (stateKey === "offline") return;
@@ -163,13 +226,25 @@ export default function Home() {
         <div className="cols">
           <ErrorBoundary>
             <ChatPanel
-              width={CHAT_WIDTH}
+              width={chatWidth}
               live={LIVE}
               onSend={() => {
                 if (stateKey === "idle") setStateKey("active");
               }}
             />
           </ErrorBoundary>
+          <div
+            className="sidebar-resizer left-resizer"
+            role="separator"
+            aria-label="Resize chat sidebar"
+            aria-orientation="vertical"
+            aria-valuemin={SIDEBAR_MIN_WIDTH}
+            aria-valuemax={SIDEBAR_MAX_WIDTH}
+            aria-valuenow={chatWidth}
+            tabIndex={0}
+            onPointerDown={(event) => beginSidebarResize("left", event)}
+            onKeyDown={(event) => resizeByKeyboard("left", event)}
+          />
           <ErrorBoundary>
             <ConnectomeView
               key={network.id}
@@ -181,9 +256,21 @@ export default function Home() {
               onReopen={() => setNetwork(null)}
             />
           </ErrorBoundary>
+          <div
+            className="sidebar-resizer right-resizer"
+            role="separator"
+            aria-label="Resize vault search sidebar"
+            aria-orientation="vertical"
+            aria-valuemin={SIDEBAR_MIN_WIDTH}
+            aria-valuemax={SIDEBAR_MAX_WIDTH}
+            aria-valuenow={searchWidth}
+            tabIndex={0}
+            onPointerDown={(event) => beginSidebarResize("right", event)}
+            onKeyDown={(event) => resizeByKeyboard("right", event)}
+          />
           <ErrorBoundary>
             <VaultSearchPanel
-              width={SEARCH_WIDTH}
+              width={searchWidth}
               live={LIVE}
               onStimulate={() => {
                 if (stateKey === "idle") setStateKey("active");
