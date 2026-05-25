@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { STATE_PRESETS, type Palette, type StateKey } from "@/lib/state";
 import {
   cortexHttpBase,
@@ -375,6 +375,8 @@ export function ConnectomeView({
   const [paramValues, setParamValues] = useState<CortexParams | null>(null);
   const [paramDrafts, setParamDrafts] = useState<Record<string, string>>({});
   const [paramStatus, setParamStatus] = useState<string>("select a node or edge");
+  const [vizPaused, setVizPaused] = useState(false);
+  const vizPausedRef = useRef(false);
   // Live membrane-potential trace for the selected neuron. The samples
   // accumulate in a ref (drawn imperatively to a canvas, never via React
   // state — 30 Hz reconciliation would thrash) while a small status
@@ -415,6 +417,9 @@ export function ConnectomeView({
     buildModeRef.current = buildMode;
     if (!buildMode) buildDraftRef.current = null;
   }, [buildMode]);
+  useEffect(() => {
+    vizPausedRef.current = vizPaused;
+  }, [vizPaused]);
 
   useEffect(() => {
     if (!live || !paramTarget) {
@@ -511,6 +516,10 @@ export function ConnectomeView({
       if (!closed) setVoltageStatus("streaming");
     };
     ws.onmessage = (ev) => {
+      if (vizPausedRef.current) {
+        setVoltageStatus("paused");
+        return;
+      }
       let frame: CortexVoltageFrame;
       try {
         frame = JSON.parse(ev.data as string);
@@ -522,6 +531,7 @@ export function ConnectomeView({
       const buf = voltageBufRef.current;
       buf.push({ t: frame.t_ms, v: sample.v_mV });
       if (buf.length > MAX_POINTS) buf.splice(0, buf.length - MAX_POINTS);
+      setVoltageStatus("streaming");
       draw();
     };
     ws.onerror = () => {
@@ -677,6 +687,32 @@ export function ConnectomeView({
     viewRef.current = { scale: 1, tx: 0, ty: 0 };
     setZoomPct(100);
   };
+  const refreshGraph = useCallback(async () => {
+    const g = await fetchGraph(cortexHttp);
+    apiGraphRef.current = g;
+    setGraphMeta({ nodes: g.nodes.length, edges: g.edges.length });
+    setGraphEmpty(g.nodes.length === 0);
+    setGraphRevision((v) => v + 1);
+  }, [cortexHttp]);
+  const resetActivity = () => {
+    pendingSpikesRef.current = [];
+    pendingWeightsRef.current.clear();
+    voltageBufRef.current = [];
+    const voltageCanvas = voltageCanvasRef.current;
+    const voltageCtx = voltageCanvas?.getContext("2d");
+    if (voltageCanvas && voltageCtx) {
+      voltageCtx.clearRect(0, 0, voltageCanvas.width, voltageCanvas.height);
+    }
+    setVoltageStatus((status) => (status === "idle" ? status : "paused"));
+    setVizPaused(true);
+    if (live) {
+      void refreshGraph().catch((err) => {
+        console.warn("[connectome] reset refresh failed", err);
+      });
+    } else {
+      setGraphRevision((v) => v + 1);
+    }
+  };
 
   // ── Live mode: fetch graph, retry until core responds ───────────────
   useEffect(() => {
@@ -704,14 +740,6 @@ export function ConnectomeView({
     return () => { cancelled = true; };
   }, [live, cortexHttp]);
 
-  const refreshGraph = async () => {
-    const g = await fetchGraph(cortexHttp);
-    apiGraphRef.current = g;
-    setGraphMeta({ nodes: g.nodes.length, edges: g.edges.length });
-    setGraphEmpty(g.nodes.length === 0);
-    setGraphRevision((v) => v + 1);
-  };
-
   // ── Live mode: spike WS subscription (with reconnect backoff). ────
   useEffect(() => {
     if (!live) return;
@@ -734,6 +762,7 @@ export function ConnectomeView({
       };
       ws.onerror = () => { /* onclose will handle reconnect */ };
       ws.onmessage = (ev) => {
+        if (vizPausedRef.current) return;
         try {
           const frame: CortexSpikeFrame = JSON.parse(ev.data);
           (pendingSpikesRef as unknown as { current: (string | number)[] }).current.push(
@@ -769,6 +798,7 @@ export function ConnectomeView({
       };
       ws.onerror = () => { /* close handler reconnects */ };
       ws.onmessage = (ev) => {
+        if (vizPausedRef.current) return;
         try {
           const frame: CortexWeightFrame = JSON.parse(ev.data);
           const map = pendingWeightsRef.current;
@@ -816,6 +846,7 @@ export function ConnectomeView({
         ._hitTest?.(wx, wy);
       if (!idx) return;
       try {
+        setVizPaused(false);
         await postStimulate(idx, clickStimulusCurrent, clickStimulusDurationMs, cortexHttp);
       } catch (err) {
         console.warn("[connectome] stimulate failed", err);
@@ -984,7 +1015,7 @@ export function ConnectomeView({
       wrap.removeEventListener("pointermove", onPointerMove);
       wrap.removeEventListener("pointerup", onPointerUp);
     };
-  }, [live, cortexHttp, graphMeta?.nodes]);
+  }, [live, cortexHttp, graphMeta?.nodes, refreshGraph]);
 
   // ── Main animation loop ───────────────────────────────────────────
   useEffect(() => {
@@ -999,6 +1030,7 @@ export function ConnectomeView({
       graph: null as Graph | null,
       spikes: [] as Spike[],
       lastT: 0,
+      simT: 0,
       spawnAcc: 0,
       spikeWindow: [] as number[],
       lastReport: 0,
@@ -1142,14 +1174,17 @@ export function ConnectomeView({
       const { stateKey, colors, wireframe, onSpikeRate, live } = propsRef.current;
       const preset = STATE_PRESETS[stateKey];
       const intensity = preset.intensity;
-      const paused = stateKey === "offline";
+      const paused = stateKey === "offline" || vizPausedRef.current;
 
       if (!state.lastT) state.lastT = now;
       const dt = Math.min(80, now - state.lastT);
       state.lastT = now;
+      if (!paused) state.simT += dt;
+      const effectiveDt = paused ? 0 : dt;
+      const t = state.simT;
 
       // Drain WS-driven spikes (live) or run the synthetic ticker (mock).
-      if (live) {
+      if (live && !paused) {
         const g = state.graph;
         const queue = pendingSpikesRef.current as unknown as string[];
         if (g && queue.length) {
@@ -1157,7 +1192,7 @@ export function ConnectomeView({
           const batch = queue.splice(0, Math.min(queue.length, 200));
           for (const id of batch) {
             const idx = g.idToIndex.get(id);
-            if (idx !== undefined) spawnSpikeFromNode(idx, now);
+            if (idx !== undefined) spawnSpikeFromNode(idx, t);
           }
         }
         // Apply pending weight updates to the live graph. We compare
@@ -1186,12 +1221,12 @@ export function ConnectomeView({
         const targetSps = 2 + intensity * intensity * 110;
         state.spawnAcc += (targetSps * dt) / 1000;
         while (state.spawnAcc >= 1) {
-          spawnRandomSpike(now);
+          spawnRandomSpike(t);
           state.spawnAcc -= 1;
         }
       }
 
-      while (state.spikeWindow.length && now - state.spikeWindow[0] > 1000) {
+      while (state.spikeWindow.length && t - state.spikeWindow[0] > 1000) {
         state.spikeWindow.shift();
       }
       if (onSpikeRate && Math.floor(now / 250) !== Math.floor(state.lastReport / 250)) {
@@ -1207,14 +1242,14 @@ export function ConnectomeView({
       }
 
       for (const n of g.nodes) {
-        n.fire *= Math.pow(0.001, dt / 1000);
-        n.hotFire *= Math.pow(0.0005, dt / 1000);
+        n.fire *= Math.pow(0.001, effectiveDt / 1000);
+        n.hotFire *= Math.pow(0.0005, effectiveDt / 1000);
         if (n.fire < 0.001) n.fire = 0;
         if (n.hotFire < 0.001) n.hotFire = 0;
       }
       // STDP pulses decay on a faster constant (~250ms half-life) — the
       // intent is a brief flash, not a sustained highlight.
-      const pulseFalloff = Math.pow(0.06, dt / 1000);
+      const pulseFalloff = Math.pow(0.06, effectiveDt / 1000);
       for (const e of g.edges) {
         if (e.pulse > 0) {
           e.pulse *= pulseFalloff;
@@ -1227,7 +1262,7 @@ export function ConnectomeView({
 
       const next: Spike[] = [];
       for (const sp of state.spikes) {
-        const p = (now - sp.t0) / sp.dur;
+        const p = (t - sp.t0) / sp.dur;
         if (p >= 1) {
           const dst = g.nodes[sp.to];
           dst.fire = Math.min(1, dst.fire + 0.9);
@@ -1246,8 +1281,8 @@ export function ConnectomeView({
               const dx = b.x - a.x;
               const dy = b.y - a.y;
               const len = Math.sqrt(dx * dx + dy * dy);
-              next.push({ from: sp.to, to: nbr, t0: now, dur: 240 + len * 1.2 });
-              state.spikeWindow.push(now);
+              next.push({ from: sp.to, to: nbr, t0: t, dur: 240 + len * 1.2 });
+              state.spikeWindow.push(t);
             }
           }
           continue;
@@ -1476,11 +1511,7 @@ export function ConnectomeView({
   }, [nodeCount, live, graphRevision]);
 
   const preset = STATE_PRESETS[stateKey];
-  const overlayLabel = live
-    ? wsState === "open"
-      ? `live · ws://core/spikes · ${graphMeta?.nodes ?? "?"} nodes`
-      : `live · connecting…`
-    : "connectome · placeholder · awaiting ws://core/spikes";
+  const overlayLabel = live ? "" : "connectome · placeholder";
   const buildModeEnabled = live && buildMode;
 
   return (
@@ -1527,7 +1558,7 @@ export function ConnectomeView({
             </span>
           </div>
         )}
-        {graphEmpty && live && !fetchFailed && (
+        {graphEmpty && live && !fetchFailed && !buildModeEnabled && (
           <div
             style={{
               position: "absolute",
@@ -1574,7 +1605,7 @@ export function ConnectomeView({
                   setBuildStatus("click empty space to add · drag node to node to connect");
                 }}
               >
-                enable build mode
+                turn on build mode
               </button>
               {onReopen && (
                 <button
@@ -1764,16 +1795,28 @@ export function ConnectomeView({
           </aside>
         )}
         <div className="connectome-overlay">
+          <div className="overlay-run-controls mono">
+            <button
+              className="zoom-btn"
+              onClick={() => setVizPaused((value) => !value)}
+              title="Pause or resume signal animation"
+            >
+              {vizPaused ? "resume" : "pause"}
+            </button>
+            <button className="zoom-btn" onClick={resetActivity} title="Clear visual activity and refetch graph">
+              reset
+            </button>
+          </div>
           <div className="overlay-top">
             <div className="overlay-label mono">
-              {overlayLabel}
+              {overlayLabel && <span>{overlayLabel}</span>}
               {buildModeEnabled && (
-                <span style={{ marginLeft: 12, color: "rgba(125,249,255,0.9)" }}>
+                <span style={{ marginLeft: overlayLabel ? 12 : 0, color: "rgba(125,249,255,0.9)" }}>
                   build · {buildStatus}
                 </span>
               )}
               {hoverLabel && (
-                <span style={{ marginLeft: 12, color: "rgba(255,255,255,0.7)" }}>
+                <span style={{ marginLeft: overlayLabel || buildModeEnabled ? 12 : 0, color: "rgba(255,255,255,0.7)" }}>
                   ▸ {hoverLabel}
                 </span>
               )}

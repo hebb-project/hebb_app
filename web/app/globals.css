@@ -817,11 +817,23 @@ html, body {
 }
 .overlay-top {
   position: absolute;
-  top: 14px; left: 16px; right: 16px;
+  top: 14px; left: 252px; right: 16px;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
+}
+.overlay-run-controls {
+  position: absolute;
+  top: 14px;
+  left: 16px;
+  display: inline-flex;
+  gap: 1px;
+  background: var(--border-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+  pointer-events: auto;
 }
 .overlay-label {
   font-size: 11px;
