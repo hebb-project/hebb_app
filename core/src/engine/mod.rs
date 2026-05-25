@@ -1626,22 +1626,12 @@ fn open_folder_into_engine(
     let weights = cortex.load_weights().map_err(|e| e.to_string())?;
     let weights_loaded = weights.len();
     for (edge_id, w) in weights {
-        // SimEngine's add_edge already set an initial weight; we don't
-        // have a `set_weight` on the engine itself, so the cleanest
-        // path is to update the synapse directly via a future
-        // `set_weight` method. For now, recreating the edge with the
-        // loaded weight matches the existing `add_edge` semantics
-        // (idempotent-by-id is enforced inside SimEngine via the
-        // hash-map insert).
-        //
-        // TODO(PR C2): expose `SimEngine::set_edge_weight(edge_id, w)`
-        // and call it here. The current path works because add_edge
-        // overwrites a same-id edge.
-        //
-        // Find the edge's pre/post from topology so we can reissue.
-        if let Some(spec) = topology.edges.iter().find(|te| te.id == edge_id) {
-            engine.add_edge(edge_id, spec.pre, spec.post, w);
-        }
+        // Overwrite the weight in place. The previous implementation
+        // called `engine.add_edge(...)` here, which silently downgraded
+        // any non-STDP synapse (e.g. PlasticSynapse) back to STDP — the
+        // installed kind from `add_edge_with_kind` above was discarded.
+        // `set_edge_weight` preserves the kind.
+        engine.set_edge_weight(edge_id, w);
     }
 
     // Apply persisted dynamic state on top of impl defaults. Missing
