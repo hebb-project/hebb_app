@@ -323,7 +323,15 @@ type Props = {
   cortexHttp?: string;
   /** Override WS URL. */
   cortexWs?: string;
-  /** Current to inject on node click (live mode). */
+/**
+ * Current to inject on node click (live mode).
+ *
+ * Defaults are deliberately a brief pulse (current=80, duration=10 ms). The old
+ * 40 × 400 ms default pegged the membrane above threshold for ~80 ticks, which
+ * on recurrent topologies with STDP could cascade into a self-sustaining spike
+ * avalanche. If the UI later exposes a "stronger stim" affordance, raise
+ * current first, not duration.
+ */
   clickStimulusCurrent?: number;
   clickStimulusDurationMs?: number;
   /**
@@ -342,8 +350,8 @@ export function ConnectomeView({
   live = false,
   cortexHttp,
   cortexWs,
-  clickStimulusCurrent = 40,
-  clickStimulusDurationMs = 400,
+  clickStimulusCurrent = 80,
+  clickStimulusDurationMs = 10,
   onReopen,
 }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
