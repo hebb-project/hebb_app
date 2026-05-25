@@ -9,6 +9,7 @@ pub mod search;
 pub mod state;
 pub mod stimulate;
 pub mod vault;
+pub mod version;
 pub mod weights;
 pub mod ws;
 
@@ -27,6 +28,7 @@ pub fn build_router(state: AppState) -> Router {
 
     Router::new()
         .route("/api/health", get(health::get_health))
+        .route("/api/version", get(version::get_version))
         .route("/api/graph", get(graph::get_full_graph))
         .route(
             "/api/graph/nodes",

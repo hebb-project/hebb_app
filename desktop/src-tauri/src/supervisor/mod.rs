@@ -28,7 +28,7 @@ pub mod process;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-pub use core::{wait_for_health, CoreLauncher};
+pub use core::{verify_core_matches_supervisor, wait_for_health, CoreLauncher};
 pub use postgres::{PostgresHandle, PostgresProvider};
 pub use process::{ManagedProcess, ProcessStatus, State};
 

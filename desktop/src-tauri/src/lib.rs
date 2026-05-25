@@ -14,7 +14,8 @@ mod supervisor;
 use std::sync::Arc;
 
 use supervisor::{
-    wait_for_health, BootstrapState, CoreLauncher, PostgresProvider, Supervisor, SupervisorOverview,
+    verify_core_matches_supervisor, wait_for_health, BootstrapState, CoreLauncher,
+    PostgresProvider, Supervisor, SupervisorOverview,
 };
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
@@ -163,6 +164,16 @@ async fn bootstrap(supervisor: &Arc<Supervisor>) -> anyhow::Result<()> {
         .await;
     wait_for_health(&bind).await?;
     tracing::info!(bind, "supervisor: core ready");
+
+    // Stale-core guard: confirm the `core` answering on `bind` is the
+    // one we just spawned and not a foreign process squatting on the
+    // port from an earlier desktop run. Mismatched SHAs would otherwise
+    // silently serve pre-fix behaviour to a freshly-built desktop —
+    // exactly the May 25 regression report.
+    supervisor
+        .set_bootstrap(BootstrapState::Starting { step: "version" })
+        .await;
+    verify_core_matches_supervisor(&bind).await?;
 
     supervisor.set_bootstrap(BootstrapState::Ready).await;
     Ok(())

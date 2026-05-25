@@ -128,6 +128,24 @@ mod tests {
     }
 
     #[test]
+    fn hh_slug_accepts_euler_integrator() {
+        // Regression: a freshly-created HH cortex from the desktop UX
+        // writes `{"integrator":"euler"}` into metadata.json. The kebab-
+        // case rename on HhIntegrator means "euler" must round-trip,
+        // not just "rk4". If this fails, opening any HH cortex created
+        // via the new-network wizard returns "unknown cortex_type 'hh'".
+        let ct = CortexType::from_slug_and_config(
+            "hh",
+            Some(&serde_json::json!({ "integrator": "euler" })),
+        )
+        .expect("HH metadata with integrator=euler should resolve");
+        match ct {
+            CortexType::Hh { config } => assert_eq!(config.integrator, HhIntegrator::Euler),
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
     fn hh_neuron_kind_carries_config() {
         let cfg = HhConfig {
             integrator: HhIntegrator::Rk4,
