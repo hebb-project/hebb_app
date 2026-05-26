@@ -1,0 +1,11 @@
+[workspace]
+# Single-member workspace. The desktop shell (desktop/src-tauri) is
+# deliberately excluded — Tauri manages its own Cargo.lock and build flow,
+# and folding it in here would pull `tauri-build` into every `cargo check`.
+members = ["core"]
+exclude = ["desktop/src-tauri"]
+resolver = "2"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

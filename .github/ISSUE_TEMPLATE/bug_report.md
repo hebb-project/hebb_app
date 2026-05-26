@@ -11,11 +11,13 @@ labels: bug
 ## Surface / install path
 
 <!-- Which one? The failure modes differ a lot. -->
-- [ ] `cortex-snn` Python library (`import cortex_snn`)
-- [ ] `docker compose` / local stack (core + bridge + web)
+- [ ] `docker compose` / local stack (core + web)
 - [ ] Desktop app (Tauri)
 - [ ] Web UI
 - [ ] Other:
+
+For issues with the simulator library itself (`hebb` crate, `import hebb` Python),
+file at https://github.com/hebb-project/hebb_core instead.
 
 ## Repro steps
 

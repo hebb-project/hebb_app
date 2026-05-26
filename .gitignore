@@ -1,0 +1,9 @@
+/target/
+/desktop/src-tauri/target/
+node_modules/
+.next/
+__pycache__/
+*.pyc
+.env
+.env.local
+.DS_Store

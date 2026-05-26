@@ -6,12 +6,12 @@
 
 ## Related
 
-<!-- Closes #123 / relates to a vault note, e.g. [[open-source-alpha-launch]] -->
+<!-- Closes #123 / cross-repo reference, e.g. hebb-project/hebb_core#... -->
 
 ## How tested
 
-<!-- Commands you actually ran, e.g. `cargo test -p cortex-snn --features disk`,
-     `task web:typecheck`. Note any checks you deliberately skipped. -->
+<!-- Commands you actually ran, e.g. `cargo test -p core`, `task web:typecheck`.
+     Note any checks you deliberately skipped. -->
 
 ## Checklist
 
