@@ -35,7 +35,7 @@ use tracing::Instrument;
 use uuid::Uuid;
 
 use super::AppState;
-use cortex_snn::{VoltageFrame, VoltageSample};
+use hebb::{VoltageFrame, VoltageSample};
 
 /// Per-connection sequence used in tracing spans so concurrent sockets
 /// can be told apart in logs. Not a security or routing identifier —

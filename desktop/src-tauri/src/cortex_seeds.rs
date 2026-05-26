@@ -12,7 +12,7 @@
 //!      absent (`open` synthesizes an empty one from metadata).
 //!   3. Reject KG cortexes — their topology comes from the source
 //!      folder's ingestion, not a seed generator.
-//!   4. Dispatch on `SeedSpec` to the matching `cortex_snn::seeds`
+//!   4. Dispatch on `SeedSpec` to the matching `hebb::seeds`
 //!      generator, then `cortex.apply_seed(seed)`, which atomically
 //!      writes `topology.json` (write-temp + fsync + rename).
 //!   5. Return `SeedReport { added_nodes, added_edges }`.
@@ -23,12 +23,12 @@
 
 use std::path::PathBuf;
 
-use cortex_snn::seeds::{self, SeedParams};
-use cortex_snn::{Cortex, SeedReport};
+use hebb::seeds::{self, SeedParams};
+use hebb::{Cortex, SeedReport};
 use serde::{Deserialize, Serialize};
 use tokio::fs;
 
-/// Mirrors `cortex_snn::seeds::SeedParams` minus the kind overrides
+/// Mirrors `hebb::seeds::SeedParams` minus the kind overrides
 /// — the UI doesn't need to pick a heterogeneous neuron mix yet, so
 /// `neuron_kind` / `synapse_kind` are left at `None` and the cortex
 /// type's default applies. `seed` is exposed so the same UI selection
@@ -76,7 +76,7 @@ impl From<SeedConfig> for SeedParams {
     }
 }
 
-/// Tagged enum matching the four generators in `cortex_snn::seeds`.
+/// Tagged enum matching the four generators in `hebb::seeds`.
 /// JSON shape from the web side:
 ///   `{ "kind": "random", "n": 32, "p": 0.05, "config": { ... } }`
 ///   `{ "kind": "ring", "n": 32, "k": 3, "config": { ... } }`
@@ -112,7 +112,7 @@ pub enum SeedSpec {
 }
 
 /// Tauri-facing summary returned to the web layer. Mirrors
-/// `cortex_snn::SeedReport` but is a local type so the surface stays
+/// `hebb::SeedReport` but is a local type so the surface stays
 /// stable if the substrate adds fields later.
 #[derive(Debug, Clone, Serialize)]
 pub struct SeedSummary {
@@ -144,7 +144,7 @@ pub async fn seed_cortex_folder(path: String, spec: SeedSpec) -> Result<SeedSumm
 
     // The web layer passes the *source* folder (the one the user
     // picked in the OS dialog). The cortex metadata lives in the
-    // `.cortex/` subdirectory; `cortex_snn::Cortex` treats *that*
+    // `.cortex/` subdirectory; `hebb::Cortex` treats *that*
     // subdir as its root.
     let cortex_root = root.join(".cortex");
     if !cortex_root.is_dir() {

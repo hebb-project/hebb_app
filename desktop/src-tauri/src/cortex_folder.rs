@@ -40,9 +40,9 @@
 use std::path::{Path, PathBuf};
 
 use chrono::{SecondsFormat, Utc};
-use cortex_snn::disk::{topology_path, write_topology};
-use cortex_snn::format::topology::{NeuronSpec, SynapseSpec, TopologyDefaults};
-use cortex_snn::{Cortex, CreateOptions};
+use hebb::disk::{topology_path, write_topology};
+use hebb::format::topology::{NeuronSpec, SynapseSpec, TopologyDefaults};
+use hebb::{Cortex, CreateOptions};
 use serde::{Deserialize, Serialize};
 use tokio::fs;
 use uuid::Uuid;
@@ -355,7 +355,7 @@ pub async fn init_cortex_folder(
         let topology_path = topology_path(&cortex);
         if !matches!(fs::metadata(&topology_path).await, Ok(m) if m.is_file()) {
             let defaults = defaults_for_cortex_type(&cortex_type, hh_config.clone())?;
-            let topology = cortex_snn::format::topology::TopologyFile::empty(
+            let topology = hebb::format::topology::TopologyFile::empty(
                 cortex_type.clone(),
                 defaults,
             );

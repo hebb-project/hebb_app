@@ -51,8 +51,8 @@ uuid = { version = "1", features = ["v4", "serde"] }
 # desktop shell only consumes these for one Tauri command
 # (`seed_cortex_folder`) — running the generator + applying it to
 # `topology.json` happens locally so we don't have to spin core up
-# first. `disk` is required so `cortex_snn::Cortex` is exported.
-cortex-snn = { path = "../../cortex-snn", features = ["disk"] }
+# first. `disk` is required so `hebb::Cortex` is exported.
+hebb = { version = "0.1", features = ["disk"] }
 
 [profile.release]
 lto = "thin"

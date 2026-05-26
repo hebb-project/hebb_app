@@ -43,7 +43,7 @@ export type CortexTypeSlug = "knowledge-graph" | "lif" | "hh";
 /**
  * HH neuron parameters that the user can override per network. Sent
  * opaquely through `hh_config` into `.cortex/metadata.json` and into
- * `POST /api/cortex`. Field shape mirrors `cortex_snn::HhConfig`;
+ * `POST /api/cortex`. Field shape mirrors `hebb::HhConfig`;
  * everything is optional so the desktop only sends what was changed
  * from defaults.
  */
@@ -109,7 +109,7 @@ export async function initCortexFolder(
 // ── Seed network generators ───────────────────────────────────────────
 //
 // Mirrors `desktop/src-tauri/src/cortex_seeds.rs`. The host-side command
-// runs `cortex_snn::seeds` against a `Cortex` opened on the freshly
+// runs `hebb::seeds` against a `Cortex` opened on the freshly
 // initialized folder, so the user lands in the visualizer with a real
 // starter network rather than an empty graph.
 

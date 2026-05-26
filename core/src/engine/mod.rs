@@ -1,4 +1,4 @@
-//! Engine actor: a single tokio task owns the [`cortex_snn::SimEngine`]
+//! Engine actor: a single tokio task owns the [`hebb::SimEngine`]
 //! and mutates it only via mpsc commands. Read-only views are served
 //! either via the broadcast channel (spike stream) or by a `Snapshot`
 //! command.
@@ -15,8 +15,8 @@ pub mod weight_persist;
 // the WS handler, etc.) doesn't need to know they originate in
 // cortex-snn. Lets us swap the substrate's serialization layer later
 // without churn across the handler layer.
-pub use cortex_snn::engine::events::{SpikeFrame, WeightDelta, WeightFrame};
-pub use cortex_snn::engine::sim::SimEngine;
+pub use hebb::engine::events::{SpikeFrame, WeightDelta, WeightFrame};
+pub use hebb::engine::sim::SimEngine;
 pub use spike_persist::spawn_spike_persister;
 pub use weight_persist::spawn_weight_persister;
 
@@ -26,9 +26,9 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 use uuid::Uuid;
 
 use crate::cortex_type::CortexType;
-use cortex_snn::format::topology::TopologyFile;
-use cortex_snn::NeuronKind;
-use cortex_snn::{AddNeuron as CortexAddNeuron, AddSynapse as CortexAddSynapse, Cortex};
+use hebb::format::topology::TopologyFile;
+use hebb::NeuronKind;
+use hebb::{AddNeuron as CortexAddNeuron, AddSynapse as CortexAddSynapse, Cortex};
 
 /// Public, cloneable handle to the running engine task. Embed in axum's
 /// `AppState`.
@@ -876,7 +876,7 @@ pub fn spawn_engine(tick_hz: u32) -> (SimHandle, tokio::task::JoinHandle<()>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cortex_snn::{HhConfig, HhIntegrator};
+    use hebb::{HhConfig, HhIntegrator};
 
     /// Configure the engine to HH, drive it via inject() + tick(), and
     /// assert a spike escapes the broadcast. Proves the actor wiring
@@ -927,8 +927,8 @@ mod tests {
     /// pipeline works end-to-end from core's perspective.
     #[tokio::test]
     async fn engine_opens_cortex_folder_from_disk() {
-        use cortex_snn::format::topology::{NeuronSpec, SynapseSpec, TopologyDefaults};
-        use cortex_snn::{AddNeuron, AddSynapse, CreateOptions};
+        use hebb::format::topology::{NeuronSpec, SynapseSpec, TopologyDefaults};
+        use hebb::{AddNeuron, AddSynapse, CreateOptions};
         use std::time::SystemTime;
 
         let nanos = SystemTime::now()
@@ -938,7 +938,7 @@ mod tests {
         let root = std::env::temp_dir().join(format!("core-engine-open-{nanos}"));
 
         // Build a 2-neuron HH folder.
-        let mut cx = cortex_snn::Cortex::create(
+        let mut cx = hebb::Cortex::create(
             &root,
             CreateOptions {
                 name: "Open Test".into(),
@@ -1016,8 +1016,8 @@ mod tests {
     /// without any DB involvement.
     #[tokio::test]
     async fn folder_neuron_write_persists_across_engine_restart() {
-        use cortex_snn::format::topology::{NeuronSpec, SynapseSpec, TopologyDefaults};
-        use cortex_snn::CreateOptions;
+        use hebb::format::topology::{NeuronSpec, SynapseSpec, TopologyDefaults};
+        use hebb::CreateOptions;
         use std::time::SystemTime;
 
         let nanos = SystemTime::now()
@@ -1025,7 +1025,7 @@ mod tests {
             .unwrap()
             .as_nanos();
         let root = std::env::temp_dir().join(format!("core-folder-write-persist-{nanos}"));
-        cortex_snn::Cortex::create(
+        hebb::Cortex::create(
             &root,
             CreateOptions {
                 name: "Persist".into(),
@@ -1074,8 +1074,8 @@ mod tests {
     /// from A in B, and reopening A still shows the original write.
     #[tokio::test]
     async fn folder_writes_isolated_across_networks() {
-        use cortex_snn::format::topology::{NeuronSpec, SynapseSpec, TopologyDefaults};
-        use cortex_snn::CreateOptions;
+        use hebb::format::topology::{NeuronSpec, SynapseSpec, TopologyDefaults};
+        use hebb::CreateOptions;
         use std::time::SystemTime;
 
         let nanos = SystemTime::now()
@@ -1085,7 +1085,7 @@ mod tests {
         let root_a = std::env::temp_dir().join(format!("core-folder-isolation-a-{nanos}"));
         let root_b = std::env::temp_dir().join(format!("core-folder-isolation-b-{nanos}"));
         for r in [&root_a, &root_b] {
-            cortex_snn::Cortex::create(
+            hebb::Cortex::create(
                 r,
                 CreateOptions {
                     name: r.file_name().unwrap().to_string_lossy().to_string(),
@@ -1139,8 +1139,8 @@ mod tests {
     /// final state.
     #[tokio::test]
     async fn folder_synapse_and_cascade_round_trip() {
-        use cortex_snn::format::topology::{NeuronSpec, SynapseSpec, TopologyDefaults};
-        use cortex_snn::CreateOptions;
+        use hebb::format::topology::{NeuronSpec, SynapseSpec, TopologyDefaults};
+        use hebb::CreateOptions;
         use std::time::SystemTime;
 
         let nanos = SystemTime::now()
@@ -1148,7 +1148,7 @@ mod tests {
             .unwrap()
             .as_nanos();
         let root = std::env::temp_dir().join(format!("core-folder-cascade-{nanos}"));
-        cortex_snn::Cortex::create(
+        hebb::Cortex::create(
             &root,
             CreateOptions {
                 name: "Cascade".into(),
@@ -1216,8 +1216,8 @@ mod tests {
     /// open, signaling the persister to take its Postgres path.
     #[tokio::test]
     async fn folder_weight_flush_persists_to_disk_and_noops_without_folder() {
-        use cortex_snn::format::topology::{NeuronSpec, SynapseSpec, TopologyDefaults};
-        use cortex_snn::CreateOptions;
+        use hebb::format::topology::{NeuronSpec, SynapseSpec, TopologyDefaults};
+        use hebb::CreateOptions;
         use std::time::SystemTime;
 
         let nanos = SystemTime::now()
@@ -1225,7 +1225,7 @@ mod tests {
             .unwrap()
             .as_nanos();
         let root = std::env::temp_dir().join(format!("core-folder-weight-flush-{nanos}"));
-        cortex_snn::Cortex::create(
+        hebb::Cortex::create(
             &root,
             CreateOptions {
                 name: "WeightFlush".into(),
@@ -1268,7 +1268,7 @@ mod tests {
         // Reopen the folder via cortex_snn directly and confirm the
         // weight landed on disk with the same id and value.
         drop(handle);
-        let cx = cortex_snn::Cortex::open(&root).unwrap();
+        let cx = hebb::Cortex::open(&root).unwrap();
         let weights = cx.load_weights().unwrap();
         assert_eq!(weights.len(), 1);
         assert_eq!(weights[0].0, edge.id);
@@ -1320,8 +1320,8 @@ mod tests {
     /// detach from the folder and reset `current_folder` to None.
     #[tokio::test]
     async fn configure_after_open_clears_folder() {
-        use cortex_snn::format::topology::{NeuronSpec, SynapseSpec, TopologyDefaults};
-        use cortex_snn::CreateOptions;
+        use hebb::format::topology::{NeuronSpec, SynapseSpec, TopologyDefaults};
+        use hebb::CreateOptions;
         use std::time::SystemTime;
 
         let nanos = SystemTime::now()
@@ -1329,7 +1329,7 @@ mod tests {
             .unwrap()
             .as_nanos();
         let root = std::env::temp_dir().join(format!("core-configure-detach-{nanos}"));
-        let _cx = cortex_snn::Cortex::create(
+        let _cx = hebb::Cortex::create(
             &root,
             CreateOptions {
                 name: "Detach".into(),
@@ -1361,8 +1361,8 @@ mod tests {
     /// vault/ideas/runtime-state-persistence-v1.md.
     #[tokio::test]
     async fn state_save_then_reopen_round_trip() {
-        use cortex_snn::format::topology::{NeuronSpec, SynapseSpec, TopologyDefaults};
-        use cortex_snn::CreateOptions;
+        use hebb::format::topology::{NeuronSpec, SynapseSpec, TopologyDefaults};
+        use hebb::CreateOptions;
         use std::time::SystemTime;
 
         let nanos = SystemTime::now()
@@ -1370,7 +1370,7 @@ mod tests {
             .unwrap()
             .as_nanos();
         let root = std::env::temp_dir().join(format!("core-state-roundtrip-{nanos}"));
-        cortex_snn::Cortex::create(
+        hebb::Cortex::create(
             &root,
             CreateOptions {
                 name: "StateRT".into(),
@@ -1409,7 +1409,7 @@ mod tests {
             Some(1),
             "save_state should report one persisted neuron"
         );
-        let persisted = cortex_snn::Cortex::open(&root)
+        let persisted = hebb::Cortex::open(&root)
             .unwrap()
             .load_state()
             .unwrap()
@@ -1461,9 +1461,9 @@ mod tests {
     /// network would corrupt without diagnosis.
     #[tokio::test]
     async fn open_rejects_mismatched_state_cortex_type() {
-        use cortex_snn::format::state::StateFile;
-        use cortex_snn::format::topology::{NeuronSpec, SynapseSpec, TopologyDefaults};
-        use cortex_snn::CreateOptions;
+        use hebb::format::state::StateFile;
+        use hebb::format::topology::{NeuronSpec, SynapseSpec, TopologyDefaults};
+        use hebb::CreateOptions;
         use std::time::SystemTime;
 
         let nanos = SystemTime::now()
@@ -1471,7 +1471,7 @@ mod tests {
             .unwrap()
             .as_nanos();
         let root = std::env::temp_dir().join(format!("core-state-mismatch-{nanos}"));
-        cortex_snn::Cortex::create(
+        hebb::Cortex::create(
             &root,
             CreateOptions {
                 name: "Mismatch".into(),
@@ -1492,11 +1492,11 @@ mod tests {
         let bogus = StateFile::empty("hh");
         let bytes = bogus.to_json_bytes().unwrap();
         let state_path =
-            cortex_snn::disk::state_path(&root, &bogus.cortex_type);
+            hebb::disk::state_path(&root, &bogus.cortex_type);
         std::fs::create_dir_all(state_path.parent().unwrap()).unwrap();
         std::fs::write(&state_path, bytes).unwrap();
         // The state path the LIF reader actually consults — copy too.
-        let lif_state_path = cortex_snn::disk::state_path(&root, "lif");
+        let lif_state_path = hebb::disk::state_path(&root, "lif");
         std::fs::create_dir_all(lif_state_path.parent().unwrap()).unwrap();
         let mut bad = StateFile::empty("hh");
         bad.neurons.insert(
@@ -1520,9 +1520,9 @@ mod tests {
     /// drift so a topology edit + reopen doesn't trip the user.
     #[tokio::test]
     async fn open_tolerates_state_for_deleted_node() {
-        use cortex_snn::format::state::StateFile;
-        use cortex_snn::format::topology::{NeuronSpec, SynapseSpec, TopologyDefaults};
-        use cortex_snn::CreateOptions;
+        use hebb::format::state::StateFile;
+        use hebb::format::topology::{NeuronSpec, SynapseSpec, TopologyDefaults};
+        use hebb::CreateOptions;
         use std::time::SystemTime;
 
         let nanos = SystemTime::now()
@@ -1530,7 +1530,7 @@ mod tests {
             .unwrap()
             .as_nanos();
         let root = std::env::temp_dir().join(format!("core-state-orphan-{nanos}"));
-        cortex_snn::Cortex::create(
+        hebb::Cortex::create(
             &root,
             CreateOptions {
                 name: "Orphan".into(),
@@ -1550,7 +1550,7 @@ mod tests {
         let mut s = StateFile::empty("lif");
         s.neurons
             .insert(Uuid::new_v4(), serde_json::json!({"v": -60.0}));
-        let path = cortex_snn::disk::state_path(&root, "lif");
+        let path = hebb::disk::state_path(&root, "lif");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, s.to_json_bytes().unwrap()).unwrap();
 
@@ -1565,7 +1565,7 @@ mod tests {
     }
 }
 
-/// Open a `.cortex/` folder via the substrate's [`cortex_snn::Cortex`]
+/// Open a `.cortex/` folder via the substrate's [`hebb::Cortex`]
 /// handle and produce a fresh `SimEngine` populated from disk. Pure
 /// sync (uses `std::fs` through the substrate), so the actor wraps it
 /// in `tokio::task::block_in_place` … actually no — the disk reads are
@@ -1577,7 +1577,7 @@ mod tests {
 fn open_folder_into_engine(
     folder: &std::path::Path,
 ) -> Result<(SimEngine, CortexType, NeuronKind, Cortex, OpenSummary), String> {
-    let cortex = cortex_snn::Cortex::open(folder).map_err(|e| e.to_string())?;
+    let cortex = hebb::Cortex::open(folder).map_err(|e| e.to_string())?;
     let topology: &TopologyFile = cortex.topology();
     let metadata = cortex.metadata();
 
@@ -1614,10 +1614,10 @@ fn open_folder_into_engine(
         // Honor the per-edge synapse kind from topology (stdp vs
         // plastic-synapse). Unknown kinds fail the open rather than
         // silently falling back to STDP — a typo in topology.json should
-        // be loud. See cortex_snn::SynapseKind.
+        // be loud. See hebb::SynapseKind.
         let spec = topology.effective_synapse(e);
         let kind =
-            cortex_snn::SynapseKind::from_spec(spec).map_err(|m| format!("edge {}: {}", e.id, m))?;
+            hebb::SynapseKind::from_spec(spec).map_err(|m| format!("edge {}: {}", e.id, m))?;
         engine.add_edge_with_kind(e.id, e.pre, e.post, e.init_weight, &kind);
     }
 

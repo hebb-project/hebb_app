@@ -202,12 +202,12 @@ dependencies = [
  "async-trait",
  "axum",
  "chrono",
- "cortex-snn",
  "diesel",
  "diesel_migrations",
  "dotenvy",
  "envy",
  "futures-util",
+ "hebb",
  "once_cell",
  "pulldown-cmark",
  "r2d2",
@@ -231,16 +231,6 @@ name = "core-foundation-sys"
 version = "0.8.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
-
-[[package]]
-name = "cortex-snn"
-version = "0.1.0"
-dependencies = [
- "rand 0.8.6",
- "serde",
- "serde_json",
- "uuid",
-]
 
 [[package]]
 name = "cpufeatures"
@@ -576,6 +566,18 @@ name = "hashbrown"
 version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
+
+[[package]]
+name = "hebb"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "05987c161c351a34c2bd0d4467b9687ac1ba14f5a366427a0f70e44432142f9d"
+dependencies = [
+ "rand 0.8.6",
+ "serde",
+ "serde_json",
+ "uuid",
+]
 
 [[package]]
 name = "heck"

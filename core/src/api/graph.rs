@@ -2,7 +2,7 @@
 
 use axum::extract::{Path, Query, State};
 use axum::Json;
-use cortex_snn::Cortex;
+use hebb::Cortex;
 use diesel::prelude::*;
 use serde::Deserialize;
 use uuid::Uuid;
@@ -379,8 +379,8 @@ fn graph_from_open_folder(folder: &std::path::Path) -> CoreResult<Option<serde_j
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cortex_snn::format::topology::{NeuronSpec, SynapseSpec, TopologyDefaults};
-    use cortex_snn::{AddNeuron, CreateOptions};
+    use hebb::format::topology::{NeuronSpec, SynapseSpec, TopologyDefaults};
+    use hebb::{AddNeuron, CreateOptions};
     use std::time::SystemTime;
 
     fn unique_root(label: &str) -> std::path::PathBuf {
@@ -392,7 +392,7 @@ mod tests {
     }
 
     fn make_lif_folder(root: &std::path::Path, name: &str, labels: &[&str]) {
-        let mut cx = cortex_snn::Cortex::create(
+        let mut cx = hebb::Cortex::create(
             root,
             CreateOptions {
                 name: name.into(),

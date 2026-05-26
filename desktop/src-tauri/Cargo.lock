@@ -8,7 +8,7 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "chrono",
- "cortex-snn",
+ "hebb",
  "postgresql_embedded",
  "serde",
  "serde_json",
@@ -441,16 +441,6 @@ dependencies = [
  "bitflags 2.11.1",
  "core-foundation",
  "libc",
-]
-
-[[package]]
-name = "cortex-snn"
-version = "0.1.0"
-dependencies = [
- "rand 0.8.6",
- "serde",
- "serde_json",
- "uuid",
 ]
 
 [[package]]
@@ -1407,6 +1397,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7382cf6263419f2d8df38c55d7da83da5c18aef87fc7a7fc1fb1e344edfe14c1"
 dependencies = [
  "hashbrown 0.15.5",
+]
+
+[[package]]
+name = "hebb"
+version = "0.1.0"
+dependencies = [
+ "rand 0.8.6",
+ "serde",
+ "serde_json",
+ "uuid",
 ]
 
 [[package]]

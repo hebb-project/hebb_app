@@ -6,7 +6,7 @@
 //! `.cortex/metadata.json` so opening a folder picks the right
 //! visualization + simulator behavior.
 //!
-//! `CortexType` is *not* the same thing as [`cortex_snn::NeuronKind`].
+//! `CortexType` is *not* the same thing as [`hebb::NeuronKind`].
 //! Some cortex types share an underlying neuron model — both
 //! `knowledge-graph` and `lif` cortexes run on LIF neurons today; the
 //! difference is provenance (vault-ingested vs. user-built). The
@@ -15,7 +15,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use cortex_snn::{HhConfig, NeuronKind};
+use hebb::{HhConfig, NeuronKind};
 
 /// The type a user picks when creating a network. Serialized as a
 /// tagged-kebab-case enum so it lines up with `.cortex/metadata.json`
@@ -87,7 +87,7 @@ impl Default for CortexType {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cortex_snn::HhIntegrator;
+    use hebb::HhIntegrator;
 
     #[test]
     fn lif_serializes_as_kebab_kind() {
