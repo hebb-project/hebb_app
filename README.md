@@ -2,7 +2,7 @@
   <img src="desktop/src-tauri/icons/icon.png" alt="Hebb app icon" width="160" />
 </p>
 
-<h1 align="center">Hebb</h1>
+<h1 align="center">Hebb App</h1>
 
 <p align="center">
   <em>An event-driven, continually-learning AI substrate with emergent goals — a brain, not a bigger LLM.</em>
