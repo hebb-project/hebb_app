@@ -23,6 +23,6 @@ A local-first desktop app and visualizer for spiking-neural-network cortexes. Re
 
 ## Where things should live
 
-- **SNN substrate changes** (new neuron model, plasticity rule, on-disk format) → not here. Belongs in [hebb-project/hebb_core](https://github.com/hebb-project/hebb_core). After landing there and publishing a new `hebb` version on crates.io, bump the dep in `core/Cargo.toml` and `desktop/src-tauri/Cargo.toml`.
+- **SNN substrate changes** (new neuron model, plasticity rule, on-disk format) → not here. Belongs in [hebb-project/hebb](https://github.com/hebb-project/hebb). After landing there and publishing a new `hebb` version on crates.io, bump the dep in `core/Cargo.toml` and `desktop/src-tauri/Cargo.toml`.
 - **API / persistence / agent loop** → `core/`.
 - **UI / IPC commands** → `web/` and `desktop/src-tauri/`.

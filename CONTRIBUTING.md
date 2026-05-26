@@ -1,6 +1,6 @@
 # Contributing to Hebb
 
-Thanks for your interest! This repo is the desktop app and visualizer for Hebb. The simulator substrate lives in a separate repo: [hebb-project/hebb_core](https://github.com/hebb-project/hebb_core) (published to crates.io as `hebb` and PyPI as `hebb-py`).
+Thanks for your interest! This repo is the desktop app and visualizer for Hebb. The simulator substrate lives in a separate repo: [hebb-project/hebb](https://github.com/hebb-project/hebb) (published to crates.io as `hebb` and PyPI as `hebb-py`).
 
 ## Repository layout
 
@@ -12,7 +12,7 @@ Thanks for your interest! This repo is the desktop app and visualizer for Hebb. 
 
 ## Where things should live
 
-- **New SNN feature (neuron model, synapse plasticity rule, on-disk format change):** belongs in [hebb-project/hebb_core](https://github.com/hebb-project/hebb_core), not here. After landing there and publishing a new `hebb` version on crates.io, bump the `hebb = "..."` line in `core/Cargo.toml` and `desktop/src-tauri/Cargo.toml`.
+- **New SNN feature (neuron model, synapse plasticity rule, on-disk format change):** belongs in [hebb-project/hebb](https://github.com/hebb-project/hebb), not here. After landing there and publishing a new `hebb` version on crates.io, bump the `hebb = "..."` line in `core/Cargo.toml` and `desktop/src-tauri/Cargo.toml`.
 - **New API endpoint, persistence change, agent loop hook:** `core/` here.
 - **New visualization, UI panel, IPC command:** `web/` (UI) and possibly `desktop/src-tauri/` (Tauri command surface).
 
