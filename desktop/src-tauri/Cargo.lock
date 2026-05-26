@@ -1402,6 +1402,8 @@ dependencies = [
 [[package]]
 name = "hebb"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "05987c161c351a34c2bd0d4467b9687ac1ba14f5a366427a0f70e44432142f9d"
 dependencies = [
  "rand 0.8.6",
  "serde",
