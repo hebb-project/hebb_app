@@ -56,7 +56,7 @@ The bigger picture is swarms of evolutionary, bio-inspired neural networks inter
 - `tests/` — integration fixtures (mock + classical knowledge bases).
 - `scripts/` — development utilities.
 
-The SNN simulator itself lives in a separate repo: [hebb-project/hebb_core](https://github.com/hebb-project/hebb_core), published as the `hebb` crate on [crates.io](https://crates.io/crates/hebb) and `hebb-py` on PyPI. `core/` and `desktop/src-tauri/` consume it as a versioned dependency.
+The SNN simulator itself lives in a separate repo: [hebb-project/hebb](https://github.com/hebb-project/hebb), published as the `hebb` crate on [crates.io](https://crates.io/crates/hebb) and `hebb-py` on PyPI. `core/` and `desktop/src-tauri/` consume it as a versioned dependency.
 
 ## Phased roadmap
 
@@ -113,7 +113,7 @@ sim.stimulate(a, current=50.0, duration_ms=30.0)
 spikes = sim.run(dt_ms=1.0, n_steps=200)   # -> [(neuron_id, t_ms), ...]
 ```
 
-The library is in [hebb-project/hebb_core](https://github.com/hebb-project/hebb_core).
+The library is in [hebb-project/hebb](https://github.com/hebb-project/hebb).
 
 ### Local development
 

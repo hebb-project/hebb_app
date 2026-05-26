@@ -6,7 +6,7 @@
 
 ## Related
 
-<!-- Closes #123 / cross-repo reference, e.g. hebb-project/hebb_core#... -->
+<!-- Closes #123 / cross-repo reference, e.g. hebb-project/hebb#... -->
 
 ## How tested
 

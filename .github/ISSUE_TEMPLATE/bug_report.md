@@ -17,7 +17,7 @@ labels: bug
 - [ ] Other:
 
 For issues with the simulator library itself (`hebb` crate, `import hebb` Python),
-file at https://github.com/hebb-project/hebb_core instead.
+file at https://github.com/hebb-project/hebb instead.
 
 ## Repro steps
 
