@@ -23,6 +23,7 @@ use std::collections::BTreeMap;
 
 use super::{AgentTool, Permission, ToolContext, ToolDescriptor, ToolError};
 use crate::agent::tools::read_only::read_only_tools;
+use crate::agent::tools::stimulate::stimulate_tools;
 use crate::agent::tools::topology_write::topology_write_tools;
 
 /// Errors a registry surfaces from operations other than `invoke()`.
@@ -101,6 +102,7 @@ impl Registry {
     pub fn register_builtin_tools(&mut self) -> Result<(), RegistryError> {
         for tool in read_only_tools()
             .into_iter()
+            .chain(stimulate_tools().into_iter())
             .chain(topology_write_tools().into_iter())
         {
             self.register(tool)?;
