@@ -7,6 +7,10 @@ use std::path::PathBuf;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct CoreConfig {
+    // Defaults to the Postgres that `docker compose up -d postgres` spins up
+    // (host-mapped port 5433, credentials from docker-compose.yml), so
+    // `task dev` works with no .env. Override via DATABASE_URL for other DBs.
+    #[serde(default = "default_database_url")]
     pub database_url: String,
 
     // Reserved for a future on-disk model artifact path. Parsed from env
@@ -57,6 +61,9 @@ pub struct CoreConfig {
     pub weight_persist_epsilon: f32,
 }
 
+fn default_database_url() -> String {
+    "postgres://cortex:cortex@localhost:5433/cortex_dev".to_string()
+}
 fn default_model_store_path() -> PathBuf {
     PathBuf::from("./data/models")
 }
