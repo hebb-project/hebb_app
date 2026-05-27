@@ -96,6 +96,10 @@ pub enum EngineCommand {
         current: f32,
         duration_ms: f32,
     },
+    ForceSpike {
+        node_id: Uuid,
+        reply: oneshot::Sender<Result<(), String>>,
+    },
     Snapshot(oneshot::Sender<EngineSnapshot>),
     /// Live topology snapshot with synapse endpoints. This is the
     /// read-only graph view the agent harness needs without going
@@ -323,6 +327,15 @@ impl SimHandle {
             })
             .await
             .map_err(|_| "engine offline")
+    }
+
+    pub async fn force_spike(&self, node_id: Uuid) -> Result<(), String> {
+        let (tx, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(EngineCommand::ForceSpike { node_id, reply: tx })
+            .await
+            .map_err(|_| "engine offline".to_string())?;
+        rx.await.map_err(|_| "engine dropped reply".to_string())?
     }
 
     pub async fn snapshot(&self) -> Result<EngineSnapshot, &'static str> {
@@ -707,6 +720,23 @@ pub fn spawn_engine(tick_hz: u32) -> (SimHandle, tokio::task::JoinHandle<()>) {
                         }
                         EngineCommand::Stimulate { node_id, current, duration_ms } =>
                             engine.inject(node_id, current, duration_ms),
+                        EngineCommand::ForceSpike { node_id, reply } => {
+                            let result = if engine.neurons.contains_key(&node_id) {
+                                engine.fired_prev.insert(node_id);
+                                let frame = SpikeFrame::new(
+                                    engine.t_ms,
+                                    vec![hebb::engine::events::SpikeEvent {
+                                        node_id,
+                                        t_ms: engine.t_ms,
+                                    }],
+                                );
+                                let _ = spike_tx.send(frame);
+                                Ok(())
+                            } else {
+                                Err(format!("node {node_id} not in engine"))
+                            };
+                            let _ = reply.send(result);
+                        }
                         EngineCommand::Snapshot(reply) => {
                             let snap = EngineSnapshot {
                                 t_ms: engine.t_ms,
