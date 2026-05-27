@@ -26,9 +26,14 @@
 #![allow(dead_code, unused_imports)]
 
 pub mod permission;
+pub mod provider;
 pub mod registry;
 pub mod tool;
 
 pub use permission::Permission;
+pub use provider::{
+    ChatMessage, ChatRequest, ChatResponse, FinishReason, GenerationConfig, LlmProvider,
+    ProviderError, Role, TokenUsage, ToolCall, ToolDeclaration,
+};
 pub use registry::{Registry, RegistryError};
 pub use tool::{AgentTool, ToolContext, ToolDescriptor, ToolError};
