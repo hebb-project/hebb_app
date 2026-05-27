@@ -125,33 +125,33 @@ The library is in [hebb-project/hebb](https://github.com/hebb-project/hebb).
 - Node.js ≥ 20.19 — runs the `web/` frontend
 - For `desktop:dev` only: the [Tauri 2 system dependencies](https://v2.tauri.app/start/prerequisites/)
 
-**Full dev stack** — Postgres (Docker) + Rust core + web dev server on the host:
+**Desktop app** (default) — Tauri shell that opens a native window, with its own embedded Postgres and core managed by the shell's supervisor:
 
 ```bash
 task dev
 ```
 
-No config needed: the core defaults to the Postgres that `task dev` starts. To point at a different database or override ports, `cp .env.example .env` and edit.
+> No Docker needed: the desktop shell downloads and supervises an embedded Postgres on first run, launches the core, and opens a webview window. Set `CORTEX_PG_URL` to point it at an external Postgres instead. `desktop:dev` is the same task under its full name.
+
+**Browser dev stack** — Postgres (Docker) + Rust core + Next.js dev server, viewed in a browser:
+
+```bash
+task dev:web
+```
 
 > The first run compiles the Rust core in release mode (~1–2 min). Once up:
 > web frontend on http://localhost:3737, core API/WebSocket on http://localhost:7654.
-> Only Postgres runs in Docker; the core and web server run on your host.
-
-**Desktop app** — Tauri shell that boots the web dev server and opens a webview window:
-
-```bash
-task desktop:dev
-```
+> Only Postgres runs in Docker; the core and web server run on your host. The core
+> defaults to that Postgres — `cp .env.example .env` only to override the DB or ports.
+> `task dev:down` stops the Postgres container.
 
 **Browser-only frontend** (no core):
 
 ```bash
-cd web
-npm install
-npm run dev
+task web:dev
 ```
 
-`task` (no args) lists every available command. `task dev:down` stops the Postgres container.
+`task` (no args) lists every available command.
 
 ## Future directions
 

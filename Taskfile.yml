@@ -26,7 +26,12 @@ tasks:
       - task: desktop:install
 
   dev:
-    desc: Full stack (docker postgres + core + web dev server)
+    desc: Run the desktop app (Tauri shell — embedded Postgres + core + webview window)
+    cmds:
+      - task: desktop:dev
+
+  dev:web:
+    desc: Browser dev stack — docker Postgres + core + Next.js dev server (http://localhost:3737)
     cmds:
       - docker compose up -d postgres
       - sleep 1
@@ -34,7 +39,7 @@ tasks:
       - task: web:dev
 
   dev:down:
-    desc: Stop docker postgres
+    desc: Stop docker postgres (used by dev:web)
     cmds:
       - docker compose down
 

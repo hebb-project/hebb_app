@@ -18,23 +18,22 @@ Thanks for your interest! This repo is the desktop app and visualizer for Hebb. 
 
 ## Getting started
 
-Prerequisites: [Task](https://taskfile.dev) (`go-task`), Docker, a Rust toolchain (`cargo`), and Node.js ≥ 20.19. `desktop:dev` additionally needs the [Tauri 2 system deps](https://v2.tauri.app/start/prerequisites/).
+Prerequisites: [Task](https://taskfile.dev) (`go-task`), a Rust toolchain (`cargo`), and Node.js ≥ 20.19. `task dev` (the desktop shell) also needs the [Tauri 2 system deps](https://v2.tauri.app/start/prerequisites/); `task dev:web` needs Docker (for Postgres).
 
 ```bash
 # Install web + desktop deps
 task install
 
-# Optional: only if you need a non-default database or ports. The core
-# defaults to the Postgres that `task dev` starts (host port 5433).
-# cp .env.example .env
-
-# Bring up a full dev stack: Postgres (Docker) + core + web dev server on the host.
-# First run compiles the Rust core in release mode (~1-2 min).
-# web -> http://localhost:3737, core -> http://localhost:7654
+# Run the desktop app: Tauri shell with embedded Postgres + core + a native window.
 task dev
 
-# Or, for the Tauri desktop shell:
-task desktop:dev
+# Or develop in the browser: Postgres (Docker) + core + Next.js dev server.
+# First run compiles the Rust core in release mode (~1-2 min).
+# web -> http://localhost:3737, core -> http://localhost:7654
+task dev:web
+
+# The core defaults to the dev:web Postgres (host port 5433); only override it
+# (a non-default DB or ports) via:  cp .env.example .env
 ```
 
 ## Tests
