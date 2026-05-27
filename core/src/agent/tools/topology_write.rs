@@ -2,10 +2,15 @@
 
 use async_trait::async_trait;
 use hebb::seeds::{self, Seed, SeedParams};
+use uuid::Uuid;
 
 use crate::agent::{AgentTool, Permission, ToolContext, ToolDescriptor, ToolError};
 
 pub struct ApplySeedTool;
+pub struct AddNeuronTool;
+pub struct AddSynapseTool;
+pub struct RemoveNeuronTool;
+pub struct RemoveSynapseTool;
 
 #[async_trait]
 impl AgentTool for ApplySeedTool {
@@ -82,7 +87,218 @@ impl AgentTool for ApplySeedTool {
 }
 
 pub fn topology_write_tools() -> Vec<Box<dyn AgentTool>> {
-    vec![Box::new(ApplySeedTool)]
+    vec![
+        Box::new(AddNeuronTool),
+        Box::new(AddSynapseTool),
+        Box::new(ApplySeedTool),
+        Box::new(RemoveNeuronTool),
+        Box::new(RemoveSynapseTool),
+    ]
+}
+
+#[async_trait]
+impl AgentTool for AddNeuronTool {
+    fn descriptor(&self) -> ToolDescriptor {
+        ToolDescriptor {
+            name: "add_neuron",
+            description: "Add one neuron to the live topology.",
+            permission: Permission::TopologyWrite,
+            input_schema: serde_json::json!({
+                "$schema": "http://json-schema.org/draft-07/schema#",
+                "type": "object",
+                "properties": {
+                    "node_id": { "type": "string", "format": "uuid" },
+                    "label": { "type": "string", "default": "" },
+                    "metadata": { "type": "object", "default": {} }
+                },
+                "additionalProperties": false,
+            }),
+        }
+    }
+
+    async fn invoke(
+        &self,
+        args: serde_json::Value,
+        ctx: ToolContext,
+    ) -> Result<serde_json::Value, ToolError> {
+        let sim = ctx.sim()?;
+        let folder = sim
+            .current_folder()
+            .await
+            .map_err(|msg| ToolError::Substrate(msg.into()))?;
+        if folder.is_some() {
+            let label = args
+                .get("label")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let metadata = args
+                .get("metadata")
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!({}));
+            let record = sim
+                .add_neuron_to_folder(label, metadata)
+                .await
+                .map_err(ToolError::Substrate)?;
+            return Ok(serde_json::json!({
+                "id": record.id,
+                "label": record.label,
+                "node_type": record.node_type,
+                "metadata": record.metadata,
+            }));
+        }
+
+        let node_id = args
+            .get("node_id")
+            .map(|_| parse_uuid_arg(&args, "node_id"))
+            .transpose()?
+            .unwrap_or_else(Uuid::new_v4);
+        sim.add_node(node_id)
+            .await
+            .map_err(|msg| ToolError::Substrate(msg.into()))?;
+        Ok(serde_json::json!({ "id": node_id }))
+    }
+}
+
+#[async_trait]
+impl AgentTool for AddSynapseTool {
+    fn descriptor(&self) -> ToolDescriptor {
+        ToolDescriptor {
+            name: "add_synapse",
+            description: "Add one synapse to the live topology.",
+            permission: Permission::TopologyWrite,
+            input_schema: serde_json::json!({
+                "$schema": "http://json-schema.org/draft-07/schema#",
+                "type": "object",
+                "properties": {
+                    "edge_id": { "type": "string", "format": "uuid" },
+                    "pre_id": { "type": "string", "format": "uuid" },
+                    "post_id": { "type": "string", "format": "uuid" },
+                    "weight": { "type": "number", "minimum": 0.0, "maximum": 1.0, "default": 0.5 },
+                    "metadata": { "type": "object", "default": {} }
+                },
+                "required": ["pre_id", "post_id"],
+                "additionalProperties": false,
+            }),
+        }
+    }
+
+    async fn invoke(
+        &self,
+        args: serde_json::Value,
+        ctx: ToolContext,
+    ) -> Result<serde_json::Value, ToolError> {
+        let pre = parse_uuid_arg(&args, "pre_id")?;
+        let post = parse_uuid_arg(&args, "post_id")?;
+        if pre == post {
+            return Err(bad_input("add_synapse", "self-loops are not allowed"));
+        }
+        let weight = args
+            .get("weight")
+            .map(|v| value_to_f32(v, "weight"))
+            .transpose()?
+            .unwrap_or(0.5);
+        let sim = ctx.sim()?;
+        let folder = sim
+            .current_folder()
+            .await
+            .map_err(|msg| ToolError::Substrate(msg.into()))?;
+        if folder.is_some() {
+            let metadata = args
+                .get("metadata")
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!({}));
+            let record = sim
+                .add_synapse_to_folder(pre, post, weight, metadata)
+                .await
+                .map_err(ToolError::Substrate)?;
+            return Ok(serde_json::json!({
+                "id": record.id,
+                "pre_id": record.pre_id,
+                "post_id": record.post_id,
+                "weight": record.weight,
+                "edge_type": record.edge_type,
+            }));
+        }
+
+        let edge_id = args
+            .get("edge_id")
+            .map(|_| parse_uuid_arg(&args, "edge_id"))
+            .transpose()?
+            .unwrap_or_else(Uuid::new_v4);
+        sim.add_edge(edge_id, pre, post, weight)
+            .await
+            .map_err(|msg| ToolError::Substrate(msg.into()))?;
+        Ok(serde_json::json!({
+            "id": edge_id,
+            "pre_id": pre,
+            "post_id": post,
+            "weight": weight,
+        }))
+    }
+}
+
+#[async_trait]
+impl AgentTool for RemoveNeuronTool {
+    fn descriptor(&self) -> ToolDescriptor {
+        ToolDescriptor {
+            name: "remove_neuron",
+            description: "Remove one neuron from the live topology, cascading incident synapses.",
+            permission: Permission::TopologyWrite,
+            input_schema: id_schema("node_id"),
+        }
+    }
+
+    async fn invoke(
+        &self,
+        args: serde_json::Value,
+        ctx: ToolContext,
+    ) -> Result<serde_json::Value, ToolError> {
+        let node_id = parse_uuid_arg(&args, "node_id")?;
+        let removed = ctx
+            .sim()?
+            .remove_neuron(node_id)
+            .await
+            .map_err(ToolError::Substrate)?;
+        Ok(match removed {
+            Some(summary) => serde_json::json!({
+                "removed": true,
+                "node_id": node_id,
+                "cascaded_edges": summary.cascaded_edges,
+            }),
+            None => serde_json::json!({
+                "removed": false,
+                "node_id": node_id,
+                "cascaded_edges": 0,
+            }),
+        })
+    }
+}
+
+#[async_trait]
+impl AgentTool for RemoveSynapseTool {
+    fn descriptor(&self) -> ToolDescriptor {
+        ToolDescriptor {
+            name: "remove_synapse",
+            description: "Remove one synapse from the live topology.",
+            permission: Permission::TopologyWrite,
+            input_schema: id_schema("edge_id"),
+        }
+    }
+
+    async fn invoke(
+        &self,
+        args: serde_json::Value,
+        ctx: ToolContext,
+    ) -> Result<serde_json::Value, ToolError> {
+        let edge_id = parse_uuid_arg(&args, "edge_id")?;
+        let removed = ctx
+            .sim()?
+            .remove_synapse(edge_id)
+            .await
+            .map_err(ToolError::Substrate)?;
+        Ok(serde_json::json!({ "removed": removed, "edge_id": edge_id }))
+    }
 }
 
 struct SeedToolSpec {
@@ -242,6 +458,29 @@ fn value_to_f32(value: &serde_json::Value, label: &'static str) -> Result<f32, T
     }
 }
 
+fn id_schema(property: &'static str) -> serde_json::Value {
+    serde_json::json!({
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            property: {
+                "type": "string",
+                "format": "uuid",
+            }
+        },
+        "required": [property],
+        "additionalProperties": false,
+    })
+}
+
+fn parse_uuid_arg(args: &serde_json::Value, property: &'static str) -> Result<Uuid, ToolError> {
+    let raw = args
+        .get(property)
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| bad_input(property, format!("{property} must be a UUID string")))?;
+    Uuid::parse_str(raw).map_err(|e| bad_input(property, format!("{property}: {e}")))
+}
+
 fn bad_input(tool: &'static str, message: impl Into<String>) -> ToolError {
     ToolError::BadInput {
         tool: tool.into(),
@@ -350,5 +589,124 @@ mod tests {
             .await
             .unwrap_err();
         assert!(matches!(err, ToolError::PermissionDenied { .. }));
+    }
+
+    #[tokio::test]
+    async fn add_and_remove_topology_are_visible_in_graph_snapshot() {
+        let (sim, _join) = spawn_engine(10_000);
+        let registry = registry();
+        let ctx = ToolContext::new(sim);
+
+        let pre = registry
+            .invoke(
+                "add_neuron",
+                serde_json::json!({}),
+                Permission::TopologyWrite,
+                ctx.clone(),
+            )
+            .await
+            .unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let post = registry
+            .invoke(
+                "add_neuron",
+                serde_json::json!({}),
+                Permission::TopologyWrite,
+                ctx.clone(),
+            )
+            .await
+            .unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let edge = registry
+            .invoke(
+                "add_synapse",
+                serde_json::json!({ "pre_id": pre, "post_id": post, "weight": 0.4 }),
+                Permission::TopologyWrite,
+                ctx.clone(),
+            )
+            .await
+            .unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let graph = registry
+            .invoke(
+                "graph_snapshot",
+                serde_json::json!({}),
+                Permission::ReadOnly,
+                ctx.clone(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(graph["nodes"].as_array().unwrap().len(), 2);
+        assert_eq!(graph["edges"].as_array().unwrap().len(), 1);
+
+        let removed_synapse = registry
+            .invoke(
+                "remove_synapse",
+                serde_json::json!({ "edge_id": edge }),
+                Permission::TopologyWrite,
+                ctx.clone(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(removed_synapse["removed"], true);
+
+        let removed_neuron = registry
+            .invoke(
+                "remove_neuron",
+                serde_json::json!({ "node_id": pre }),
+                Permission::TopologyWrite,
+                ctx.clone(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(removed_neuron["removed"], true);
+
+        let graph = registry
+            .invoke(
+                "graph_snapshot",
+                serde_json::json!({}),
+                Permission::ReadOnly,
+                ctx,
+            )
+            .await
+            .unwrap();
+        assert_eq!(graph["nodes"].as_array().unwrap().len(), 1);
+        assert_eq!(graph["edges"].as_array().unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn remove_neuron_cascades_edges() {
+        let (sim, _join) = spawn_engine(10_000);
+        let registry = registry();
+        let ctx = ToolContext::new(sim);
+        let pre = Uuid::new_v4();
+        let post = Uuid::new_v4();
+        let edge = Uuid::new_v4();
+        ctx.sim().unwrap().add_node(pre).await.unwrap();
+        ctx.sim().unwrap().add_node(post).await.unwrap();
+        ctx.sim()
+            .unwrap()
+            .add_edge(edge, pre, post, 0.4)
+            .await
+            .unwrap();
+
+        let removed = registry
+            .invoke(
+                "remove_neuron",
+                serde_json::json!({ "node_id": pre }),
+                Permission::TopologyWrite,
+                ctx,
+            )
+            .await
+            .unwrap();
+        assert_eq!(removed["removed"], true);
+        assert_eq!(removed["cascaded_edges"], 1);
     }
 }

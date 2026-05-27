@@ -120,6 +120,14 @@ pub enum EngineCommand {
         node_id: Uuid,
         reply: oneshot::Sender<Result<(), String>>,
     },
+    RemoveNeuron {
+        node_id: Uuid,
+        reply: oneshot::Sender<Result<Option<FolderRemoveSummary>, String>>,
+    },
+    RemoveSynapse {
+        edge_id: Uuid,
+        reply: oneshot::Sender<Result<bool, String>>,
+    },
     RunFor {
         duration_ms: f32,
         dt_ms: f32,
@@ -619,6 +627,27 @@ impl SimHandle {
         rx.await.map_err(|_| "engine dropped reply".to_string())?
     }
 
+    pub async fn remove_neuron(
+        &self,
+        node_id: Uuid,
+    ) -> Result<Option<FolderRemoveSummary>, String> {
+        let (tx, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(EngineCommand::RemoveNeuron { node_id, reply: tx })
+            .await
+            .map_err(|_| "engine offline".to_string())?;
+        rx.await.map_err(|_| "engine dropped reply".to_string())?
+    }
+
+    pub async fn remove_synapse(&self, edge_id: Uuid) -> Result<bool, String> {
+        let (tx, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(EngineCommand::RemoveSynapse { edge_id, reply: tx })
+            .await
+            .map_err(|_| "engine offline".to_string())?;
+        rx.await.map_err(|_| "engine dropped reply".to_string())?
+    }
+
     pub async fn remove_synapse_from_folder(&self, edge_id: Uuid) -> Result<bool, String> {
         let (tx, rx) = oneshot::channel();
         self.cmd_tx
@@ -786,6 +815,48 @@ pub fn spawn_engine(tick_hz: u32) -> (SimHandle, tokio::task::JoinHandle<()>) {
                                 duration_ms,
                                 dt_ms,
                             );
+                            let _ = reply.send(result);
+                        }
+                        EngineCommand::RemoveNeuron { node_id, reply } => {
+                            let result = match current_cortex.as_mut() {
+                                Some(cortex) => {
+                                    let present =
+                                        cortex.topology().nodes.iter().any(|n| n.id == node_id);
+                                    if !present {
+                                        Ok(None)
+                                    } else {
+                                        match cortex.remove_neuron(node_id) {
+                                            Ok(cascaded_edges) => {
+                                                engine.remove_neuron(node_id);
+                                                Ok(Some(FolderRemoveSummary { cascaded_edges }))
+                                            }
+                                            Err(e) => Err(e.to_string()),
+                                        }
+                                    }
+                                }
+                                None => {
+                                    if engine.neurons.contains_key(&node_id) {
+                                        let cascaded_edges = engine.remove_neuron(node_id);
+                                        Ok(Some(FolderRemoveSummary { cascaded_edges }))
+                                    } else {
+                                        Ok(None)
+                                    }
+                                }
+                            };
+                            let _ = reply.send(result);
+                        }
+                        EngineCommand::RemoveSynapse { edge_id, reply } => {
+                            let result = match current_cortex.as_mut() {
+                                Some(cortex) => match cortex.remove_synapse(edge_id) {
+                                    Ok(true) => {
+                                        engine.remove_synapse(edge_id);
+                                        Ok(true)
+                                    }
+                                    Ok(false) => Ok(false),
+                                    Err(e) => Err(e.to_string()),
+                                },
+                                None => Ok(engine.remove_synapse(edge_id)),
+                            };
                             let _ = reply.send(result);
                         }
                         EngineCommand::Snapshot(reply) => {
