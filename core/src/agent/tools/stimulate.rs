@@ -9,9 +9,11 @@ const MIN_CURRENT_PA: f32 = -100.0;
 const MAX_CURRENT_PA: f32 = 100.0;
 const MIN_DURATION_MS: f32 = 0.0;
 const MAX_DURATION_MS: f32 = 1000.0;
+const MAX_RUN_DURATION_MS: f32 = 5000.0;
 
 pub struct InjectCurrentTool;
 pub struct ForceSpikeTool;
+pub struct RunForTool;
 
 #[async_trait]
 impl AgentTool for InjectCurrentTool {
@@ -96,8 +98,64 @@ impl AgentTool for ForceSpikeTool {
     }
 }
 
+#[async_trait]
+impl AgentTool for RunForTool {
+    fn descriptor(&self) -> ToolDescriptor {
+        ToolDescriptor {
+            name: "run_for",
+            description:
+                "Advance the simulator for a bounded duration and return a spike-count summary.",
+            permission: Permission::Stimulate,
+            input_schema: serde_json::json!({
+                "$schema": "http://json-schema.org/draft-07/schema#",
+                "type": "object",
+                "properties": {
+                    "duration_ms": {
+                        "type": "number",
+                        "minimum": 0.0,
+                        "maximum": MAX_RUN_DURATION_MS
+                    },
+                    "dt_ms": {
+                        "type": "number",
+                        "exclusiveMinimum": 0.0,
+                        "maximum": 100.0,
+                        "default": 1.0
+                    }
+                },
+                "required": ["duration_ms"],
+                "additionalProperties": false,
+            }),
+        }
+    }
+
+    async fn invoke(
+        &self,
+        args: serde_json::Value,
+        ctx: ToolContext,
+    ) -> Result<serde_json::Value, ToolError> {
+        let requested_duration = parse_f32_arg(&args, "duration_ms")?;
+        let requested_dt = args
+            .get("dt_ms")
+            .map(|_| parse_f32_arg(&args, "dt_ms"))
+            .transpose()?
+            .unwrap_or(1.0);
+        let duration_ms = requested_duration.clamp(0.0, MAX_RUN_DURATION_MS);
+        let dt_ms = requested_dt.clamp(0.001, 100.0);
+        let summary = ctx
+            .sim()?
+            .run_for(duration_ms, dt_ms)
+            .await
+            .map_err(ToolError::Substrate)?;
+        serde_json::to_value(summary).map_err(|e| ToolError::Substrate(e.to_string()))
+    }
+}
+
 pub fn stimulate_tools() -> Vec<Box<dyn AgentTool>> {
-    vec![Box::new(InjectCurrentTool), Box::new(ForceSpikeTool)]
+    vec![
+        Box::new(InjectCurrentTool),
+        Box::new(ForceSpikeTool),
+        Box::new(RunForTool),
+    ]
 }
 
 fn parse_uuid_arg(args: &serde_json::Value, property: &'static str) -> Result<Uuid, ToolError> {
@@ -149,7 +207,7 @@ mod tests {
         let descriptors = registry.descriptors();
         assert_eq!(
             descriptors.iter().map(|d| d.name).collect::<Vec<_>>(),
-            vec!["force_spike", "inject_current"]
+            vec!["force_spike", "inject_current", "run_for"]
         );
         assert!(descriptors
             .iter()
@@ -223,5 +281,45 @@ mod tests {
             .await
             .unwrap_err();
         assert!(matches!(err, ToolError::PermissionDenied { .. }));
+    }
+
+    #[tokio::test]
+    async fn run_for_returns_structured_spike_summary() {
+        let (sim, _join) = spawn_engine(10_000);
+        let node_id = Uuid::new_v4();
+        sim.add_node(node_id).await.unwrap();
+        sim.force_spike(node_id).await.unwrap();
+
+        let out = registry()
+            .invoke(
+                "run_for",
+                serde_json::json!({ "duration_ms": 500.0, "dt_ms": 1.0 }),
+                Permission::Stimulate,
+                ToolContext::new(sim),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(out["duration_ms"], 500.0);
+        assert_eq!(out["dt_ms"], 1.0);
+        assert_eq!(out["steps"], 500);
+        assert!(out["total_spikes"].as_u64().is_some());
+        assert_eq!(out["cancelled"], false);
+        assert!(out["per_neuron"].as_array().is_some());
+    }
+
+    #[tokio::test]
+    async fn run_for_is_bounded() {
+        let (sim, _join) = spawn_engine(10_000);
+        let out = registry()
+            .invoke(
+                "run_for",
+                serde_json::json!({ "duration_ms": 6000.0, "dt_ms": 10.0 }),
+                Permission::Stimulate,
+                ToolContext::new(sim),
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(out, ToolError::BadInput { .. }));
     }
 }
