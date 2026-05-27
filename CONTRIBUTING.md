@@ -18,11 +18,18 @@ Thanks for your interest! This repo is the desktop app and visualizer for Hebb. 
 
 ## Getting started
 
+Prerequisites: [Task](https://taskfile.dev) (`go-task`), Docker, a Rust toolchain (`cargo`), and Node.js ≥ 20.19. `desktop:dev` additionally needs the [Tauri 2 system deps](https://v2.tauri.app/start/prerequisites/).
+
 ```bash
-# Install
+# One-time: DATABASE_URL for the core (required; Postgres maps to host port 5433)
+cp .env.example .env
+
+# Install web + desktop deps
 task install
 
-# Bring up a full dev stack (postgres + core + web dev server)
+# Bring up a full dev stack: Postgres (Docker) + core + web dev server on the host.
+# First run compiles the Rust core in release mode (~1-2 min).
+# web -> http://localhost:3737, core -> http://localhost:7654
 task dev
 
 # Or, for the Tauri desktop shell:

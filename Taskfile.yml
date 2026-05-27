@@ -30,7 +30,7 @@ tasks:
     cmds:
       - docker compose up -d postgres
       - sleep 1
-      - task: core:run &
+      - cargo run --release -p core &
       - task: web:dev
 
   dev:down:
