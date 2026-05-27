@@ -29,6 +29,7 @@ pub mod permission;
 pub mod provider;
 pub mod registry;
 pub mod tool;
+pub mod tools;
 
 pub use permission::Permission;
 pub use provider::{
