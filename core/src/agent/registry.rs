@@ -22,6 +22,7 @@
 use std::collections::BTreeMap;
 
 use super::{AgentTool, Permission, ToolContext, ToolDescriptor, ToolError};
+use crate::agent::tools::read_only::read_only_tools;
 
 /// Errors a registry surfaces from operations other than `invoke()`.
 /// Invocation errors are [`ToolError`].
@@ -92,6 +93,14 @@ impl Registry {
                 validator,
             },
         );
+        Ok(())
+    }
+
+    /// Register the built-in tool catalog owned by `core`.
+    pub fn register_builtin_tools(&mut self) -> Result<(), RegistryError> {
+        for tool in read_only_tools() {
+            self.register(tool)?;
+        }
         Ok(())
     }
 

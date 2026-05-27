@@ -45,6 +45,27 @@ pub struct EngineSnapshot {
     pub n_synapses: usize,
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct EngineGraphSnapshot {
+    pub t_ms: f64,
+    pub nodes: Vec<EngineGraphNode>,
+    pub edges: Vec<EngineGraphEdge>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct EngineGraphNode {
+    pub id: Uuid,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct EngineGraphEdge {
+    pub id: Uuid,
+    pub pre_id: Uuid,
+    pub post_id: Uuid,
+    pub weight: f32,
+    pub edge_type: &'static str,
+}
+
 pub enum EngineCommand {
     AddNode(Uuid),
     AddEdge {
@@ -65,6 +86,10 @@ pub enum EngineCommand {
         duration_ms: f32,
     },
     Snapshot(oneshot::Sender<EngineSnapshot>),
+    /// Live topology snapshot with synapse endpoints. This is the
+    /// read-only graph view the agent harness needs without going
+    /// through the HTTP layer.
+    GraphSnapshot(oneshot::Sender<EngineGraphSnapshot>),
     /// One-shot weight snapshot: returns Vec<(edge_id, weight)>.
     WeightSnapshot(oneshot::Sender<Vec<(Uuid, f32)>>),
     /// One-shot membrane-potential snapshot for the `/ws/voltage` stream.
@@ -284,6 +309,15 @@ impl SimHandle {
         let (tx, rx) = oneshot::channel();
         self.cmd_tx
             .send(EngineCommand::Snapshot(tx))
+            .await
+            .map_err(|_| "engine offline")?;
+        rx.await.map_err(|_| "engine dropped reply")
+    }
+
+    pub async fn graph_snapshot(&self) -> Result<EngineGraphSnapshot, &'static str> {
+        let (tx, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(EngineCommand::GraphSnapshot(tx))
             .await
             .map_err(|_| "engine offline")?;
         rx.await.map_err(|_| "engine dropped reply")
@@ -623,6 +657,29 @@ pub fn spawn_engine(tick_hz: u32) -> (SimHandle, tokio::task::JoinHandle<()>) {
                                 n_synapses: engine.n_synapses(),
                             };
                             let _ = reply.send(snap);
+                        }
+                        EngineCommand::GraphSnapshot(reply) => {
+                            let nodes = engine
+                                .list_neurons()
+                                .into_iter()
+                                .map(|id| EngineGraphNode { id })
+                                .collect();
+                            let edges = engine
+                                .synapses
+                                .iter()
+                                .map(|synapse| EngineGraphEdge {
+                                    id: synapse.id(),
+                                    pre_id: synapse.pre_id(),
+                                    post_id: synapse.post_id(),
+                                    weight: synapse.weight(),
+                                    edge_type: synapse.kind_name(),
+                                })
+                                .collect();
+                            let _ = reply.send(EngineGraphSnapshot {
+                                t_ms: engine.t_ms,
+                                nodes,
+                                edges,
+                            });
                         }
                         EngineCommand::WeightSnapshot(reply) => {
                             let _ = reply.send(engine.weight_snapshot());
@@ -1491,18 +1548,15 @@ mod tests {
         // LIF folder's state path. Open must refuse.
         let bogus = StateFile::empty("hh");
         let bytes = bogus.to_json_bytes().unwrap();
-        let state_path =
-            hebb::disk::state_path(&root, &bogus.cortex_type);
+        let state_path = hebb::disk::state_path(&root, &bogus.cortex_type);
         std::fs::create_dir_all(state_path.parent().unwrap()).unwrap();
         std::fs::write(&state_path, bytes).unwrap();
         // The state path the LIF reader actually consults — copy too.
         let lif_state_path = hebb::disk::state_path(&root, "lif");
         std::fs::create_dir_all(lif_state_path.parent().unwrap()).unwrap();
         let mut bad = StateFile::empty("hh");
-        bad.neurons.insert(
-            Uuid::new_v4(),
-            serde_json::json!({"v": -60.0}),
-        );
+        bad.neurons
+            .insert(Uuid::new_v4(), serde_json::json!({"v": -60.0}));
         std::fs::write(&lif_state_path, bad.to_json_bytes().unwrap()).unwrap();
 
         let (h, _j) = spawn_engine(1000);

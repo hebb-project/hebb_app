@@ -15,6 +15,7 @@
 use async_trait::async_trait;
 
 use super::Permission;
+use crate::engine::SimHandle;
 
 /// Descriptor metadata returned by every tool. The harness reads this to
 /// build the listing the LLM sees and to enforce permissions/input shape
@@ -46,15 +47,21 @@ pub struct ToolDescriptor {
 /// version is empty; concrete handles (engine, cortex folder, audit hook)
 /// are wired in when the first tool lands. Keeping the type around now lets
 /// the trait signature stabilize without churn.
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Default, Clone)]
 pub struct ToolContext {
-    // Intentionally empty in the skeleton. Follow-up PRs add:
-    //   pub engine: &'a SimHandle,
-    //   pub cortex: Option<&'a Mutex<Cortex>>,
-    //   pub audit_t_ms: f64,
-    //
-    // Held as a struct (not function arguments) so adding a new substrate
-    // handle does not require touching every tool impl.
+    pub sim: Option<SimHandle>,
+}
+
+impl ToolContext {
+    pub fn new(sim: SimHandle) -> Self {
+        Self { sim: Some(sim) }
+    }
+
+    pub fn sim(&self) -> Result<&SimHandle, ToolError> {
+        self.sim
+            .as_ref()
+            .ok_or_else(|| ToolError::Substrate("tool context missing SimHandle".into()))
+    }
 }
 
 /// Failure modes the harness can surface from a tool call. Translated to
@@ -82,7 +89,11 @@ impl std::fmt::Display for ToolError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::UnknownTool(name) => write!(f, "unknown tool '{name}'"),
-            Self::PermissionDenied { tool, required, granted } => write!(
+            Self::PermissionDenied {
+                tool,
+                required,
+                granted,
+            } => write!(
                 f,
                 "permission denied for '{tool}': required {required}, granted {granted}"
             ),
