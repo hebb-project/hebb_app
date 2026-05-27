@@ -16,6 +16,10 @@
 
 Hebb is the product-facing shell for the broader **Long Horizon Cortex Mechanism** research project: a persistent, event-driven substrate for long-horizon planning, online learning, and tool-using intelligence — one where traditional neural networks (Transformers, ResNets, encoders) are *modules*, not the core architecture.
 
+<p align="center">
+  <img src="docs/assets/demo1.png" alt="Hebb Desktop App" />
+</p>
+
 ## What is this?
 
 Hebb is two things at once, and you can use whichever you need:
