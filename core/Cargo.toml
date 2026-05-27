@@ -67,6 +67,7 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 # dyn ChatEncoder>` pattern viable so adding a future embedding /
 # gemini encoder is additive, not a refactor.
 async-trait = "0.1"
+jsonschema = { version = "0.46.5", default-features = false }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full", "test-util"] }
