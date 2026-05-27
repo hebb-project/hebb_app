@@ -22,6 +22,9 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
+pub mod gemini;
+pub use gemini::GeminiProvider;
+
 /// Who authored a message in the conversation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -57,12 +60,23 @@ pub struct ChatMessage {
     /// For `Role::Tool` messages: the id of the [`ToolCall`] this answers.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_call_id: Option<String>,
+    /// For `Role::Tool` messages: the tool's name. Providers route tool
+    /// results differently — Gemini matches `functionResponse` by name,
+    /// OpenAI carries a `name` field — so we keep both id and name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
 }
 
 impl ChatMessage {
     /// A plain text message in the given role (no tool calls).
     pub fn text(role: Role, content: impl Into<String>) -> Self {
-        Self { role, content: content.into(), tool_calls: Vec::new(), tool_call_id: None }
+        Self {
+            role,
+            content: content.into(),
+            tool_calls: Vec::new(),
+            tool_call_id: None,
+            name: None,
+        }
     }
 
     /// A `system` instruction message.
@@ -75,13 +89,19 @@ impl ChatMessage {
         Self::text(Role::User, content)
     }
 
-    /// A `tool` result message answering a specific tool call.
-    pub fn tool_result(tool_call_id: impl Into<String>, content: impl Into<String>) -> Self {
+    /// A `tool` result message answering a specific tool call, carrying the
+    /// tool's name so name-routed providers (Gemini) can correlate it.
+    pub fn tool_result(
+        tool_call_id: impl Into<String>,
+        name: impl Into<String>,
+        content: impl Into<String>,
+    ) -> Self {
         Self {
             role: Role::Tool,
             content: content.into(),
             tool_calls: Vec::new(),
             tool_call_id: Some(tool_call_id.into()),
+            name: Some(name.into()),
         }
     }
 }
@@ -281,9 +301,10 @@ mod tests {
     fn message_constructors_set_roles() {
         assert_eq!(ChatMessage::system("hi").role, Role::System);
         assert_eq!(ChatMessage::user("hi").role, Role::User);
-        let t = ChatMessage::tool_result("call_1", "{}");
+        let t = ChatMessage::tool_result("call_1", "graph_snapshot", "{}");
         assert_eq!(t.role, Role::Tool);
         assert_eq!(t.tool_call_id.as_deref(), Some("call_1"));
+        assert_eq!(t.name.as_deref(), Some("graph_snapshot"));
     }
 
     #[test]
