@@ -44,6 +44,7 @@ pub fn run() {
     let supervisor = Arc::new(Supervisor::new());
     let supervisor_for_setup = supervisor.clone();
     let supervisor_for_close = supervisor.clone();
+    let supervisor_for_signal = supervisor.clone();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -103,6 +104,24 @@ pub fn run() {
             // show immediately while Postgres + core come up in the
             // background. Frontend polls `supervisor_status` for live
             // state.
+            // Terminal Ctrl+C (SIGINT) bypasses the window `CloseRequested`
+            // handler, so without this the supervised core and embedded
+            // Postgres orphan when the app is run from a terminal (e.g.
+            // `task dev`). Install our own handler that runs the same
+            // teardown before exiting.
+            let supervisor_signal = supervisor_for_signal.clone();
+            tauri::async_runtime::spawn(async move {
+                match tokio::signal::ctrl_c().await {
+                    Ok(()) => {
+                        tracing::info!("received ctrl-c (SIGINT), shutting down");
+                        supervisor_signal.shutdown_all().await;
+                        tracing::info!("supervisor: shutdown_all complete (signal)");
+                        std::process::exit(0);
+                    }
+                    Err(e) => tracing::warn!(error = %e, "failed to install ctrl-c handler"),
+                }
+            });
+
             let supervisor = supervisor_for_setup.clone();
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = bootstrap(&supervisor).await {
