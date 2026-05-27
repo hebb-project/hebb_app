@@ -27,6 +27,7 @@ use uuid::Uuid;
 
 use crate::cortex_type::CortexType;
 use hebb::format::topology::TopologyFile;
+use hebb::seeds::Seed;
 use hebb::NeuronKind;
 use hebb::{AddNeuron as CortexAddNeuron, AddSynapse as CortexAddSynapse, Cortex};
 
@@ -66,6 +67,12 @@ pub struct EngineGraphEdge {
     pub edge_type: &'static str,
 }
 
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+pub struct EngineSeedReport {
+    pub added_nodes: usize,
+    pub added_edges: usize,
+}
+
 pub enum EngineCommand {
     AddNode(Uuid),
     AddEdge {
@@ -79,6 +86,10 @@ pub enum EngineCommand {
         /// (edge_id, pre_id, post_id, initial_weight)
         edges: Vec<(Uuid, Uuid, Uuid, f32)>,
         reply: oneshot::Sender<()>,
+    },
+    ApplySeed {
+        seed: Seed,
+        reply: oneshot::Sender<Result<EngineSeedReport, String>>,
     },
     Stimulate {
         node_id: Uuid,
@@ -287,6 +298,15 @@ impl SimHandle {
             .await
             .map_err(|_| "engine offline")?;
         rx.await.map_err(|_| "engine dropped reply")
+    }
+
+    pub async fn apply_seed(&self, seed: Seed) -> Result<EngineSeedReport, String> {
+        let (tx, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(EngineCommand::ApplySeed { seed, reply: tx })
+            .await
+            .map_err(|_| "engine offline".to_string())?;
+        rx.await.map_err(|_| "engine dropped reply".to_string())?
     }
 
     pub async fn stimulate(
@@ -647,6 +667,43 @@ pub fn spawn_engine(tick_hz: u32) -> (SimHandle, tokio::task::JoinHandle<()>) {
                                 engine.add_edge(edge_id, pre, post, w);
                             }
                             let _ = reply.send(());
+                        }
+                        EngineCommand::ApplySeed { seed, reply } => {
+                            let result = match current_cortex.as_mut() {
+                                Some(cortex) => {
+                                    let report = cortex
+                                        .apply_seed(seed.clone())
+                                        .map(|report| EngineSeedReport {
+                                            added_nodes: report.added_nodes,
+                                            added_edges: report.added_edges,
+                                        })
+                                        .map_err(|e| e.to_string());
+                                    if report.is_ok() {
+                                        for node in &seed.nodes {
+                                            engine.add_neuron_with_kind(node.id, &current_kind);
+                                        }
+                                        for edge in &seed.edges {
+                                            engine.add_edge(edge.id, edge.pre, edge.post, edge.init_weight);
+                                        }
+                                    }
+                                    report
+                                }
+                                None => {
+                                    let nodes_before = engine.n_neurons();
+                                    let edges_before = engine.n_synapses();
+                                    for node in seed.nodes {
+                                        engine.add_neuron_with_kind(node.id, &current_kind);
+                                    }
+                                    for edge in seed.edges {
+                                        engine.add_edge(edge.id, edge.pre, edge.post, edge.init_weight);
+                                    }
+                                    Ok(EngineSeedReport {
+                                        added_nodes: engine.n_neurons() - nodes_before,
+                                        added_edges: engine.n_synapses() - edges_before,
+                                    })
+                                }
+                            };
+                            let _ = reply.send(result);
                         }
                         EngineCommand::Stimulate { node_id, current, duration_ms } =>
                             engine.inject(node_id, current, duration_ms),
