@@ -22,6 +22,7 @@
 use std::collections::BTreeMap;
 
 use super::{AgentTool, Permission, ToolContext, ToolDescriptor, ToolError};
+use crate::agent::tools::parameter_write::parameter_write_tools;
 use crate::agent::tools::read_only::read_only_tools;
 use crate::agent::tools::stimulate::stimulate_tools;
 use crate::agent::tools::topology_write::topology_write_tools;
@@ -102,6 +103,7 @@ impl Registry {
     pub fn register_builtin_tools(&mut self) -> Result<(), RegistryError> {
         for tool in read_only_tools()
             .into_iter()
+            .chain(parameter_write_tools().into_iter())
             .chain(stimulate_tools().into_iter())
             .chain(topology_write_tools().into_iter())
         {
