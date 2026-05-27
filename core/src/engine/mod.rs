@@ -20,6 +20,7 @@ pub use hebb::engine::sim::SimEngine;
 pub use spike_persist::spawn_spike_persister;
 pub use weight_persist::spawn_weight_persister;
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::Duration;
 use tokio::sync::{broadcast, mpsc, oneshot};
@@ -73,6 +74,25 @@ pub struct EngineSeedReport {
     pub added_edges: usize,
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct EngineRunSummary {
+    pub requested_duration_ms: f32,
+    pub duration_ms: f32,
+    pub dt_ms: f32,
+    pub steps: usize,
+    pub t_start_ms: f64,
+    pub t_end_ms: f64,
+    pub total_spikes: usize,
+    pub per_neuron: Vec<EngineRunNeuronCount>,
+    pub cancelled: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct EngineRunNeuronCount {
+    pub node_id: Uuid,
+    pub spikes: usize,
+}
+
 pub enum EngineCommand {
     AddNode(Uuid),
     AddEdge {
@@ -99,6 +119,11 @@ pub enum EngineCommand {
     ForceSpike {
         node_id: Uuid,
         reply: oneshot::Sender<Result<(), String>>,
+    },
+    RunFor {
+        duration_ms: f32,
+        dt_ms: f32,
+        reply: oneshot::Sender<Result<EngineRunSummary, String>>,
     },
     Snapshot(oneshot::Sender<EngineSnapshot>),
     /// Live topology snapshot with synapse endpoints. This is the
@@ -333,6 +358,19 @@ impl SimHandle {
         let (tx, rx) = oneshot::channel();
         self.cmd_tx
             .send(EngineCommand::ForceSpike { node_id, reply: tx })
+            .await
+            .map_err(|_| "engine offline".to_string())?;
+        rx.await.map_err(|_| "engine dropped reply".to_string())?
+    }
+
+    pub async fn run_for(&self, duration_ms: f32, dt_ms: f32) -> Result<EngineRunSummary, String> {
+        let (tx, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(EngineCommand::RunFor {
+                duration_ms,
+                dt_ms,
+                reply: tx,
+            })
             .await
             .map_err(|_| "engine offline".to_string())?;
         rx.await.map_err(|_| "engine dropped reply".to_string())?
@@ -735,6 +773,19 @@ pub fn spawn_engine(tick_hz: u32) -> (SimHandle, tokio::task::JoinHandle<()>) {
                             } else {
                                 Err(format!("node {node_id} not in engine"))
                             };
+                            let _ = reply.send(result);
+                        }
+                        EngineCommand::RunFor {
+                            duration_ms,
+                            dt_ms,
+                            reply,
+                        } => {
+                            let result = run_engine_for(
+                                &mut engine,
+                                &spike_tx,
+                                duration_ms,
+                                dt_ms,
+                            );
                             let _ = reply.send(result);
                         }
                         EngineCommand::Snapshot(reply) => {
@@ -1828,6 +1879,60 @@ fn open_folder_into_engine(
         weights_loaded,
     };
     Ok((engine, cortex_type, kind, cortex, summary))
+}
+
+fn run_engine_for(
+    engine: &mut SimEngine,
+    spike_tx: &broadcast::Sender<SpikeFrame>,
+    duration_ms: f32,
+    dt_ms: f32,
+) -> Result<EngineRunSummary, String> {
+    if !duration_ms.is_finite() || !dt_ms.is_finite() {
+        return Err("duration_ms and dt_ms must be finite".into());
+    }
+    if duration_ms < 0.0 {
+        return Err("duration_ms must be >= 0".into());
+    }
+    if dt_ms <= 0.0 {
+        return Err("dt_ms must be > 0".into());
+    }
+
+    let t_start_ms = engine.t_ms;
+    let steps = (duration_ms / dt_ms).ceil() as usize;
+    let mut counts: BTreeMap<Uuid, usize> = BTreeMap::new();
+    let mut total_spikes = 0;
+
+    for step in 0..steps {
+        let elapsed = step as f32 * dt_ms;
+        let remaining = (duration_ms - elapsed).max(0.0);
+        let step_dt = remaining.min(dt_ms);
+        if step_dt <= 0.0 {
+            break;
+        }
+        let frame = engine.tick(step_dt);
+        if !frame.events.is_empty() {
+            total_spikes += frame.events.len();
+            for event in &frame.events {
+                *counts.entry(event.node_id).or_insert(0) += 1;
+            }
+            let _ = spike_tx.send(frame);
+        }
+    }
+
+    Ok(EngineRunSummary {
+        requested_duration_ms: duration_ms,
+        duration_ms,
+        dt_ms,
+        steps,
+        t_start_ms,
+        t_end_ms: engine.t_ms,
+        total_spikes,
+        per_neuron: counts
+            .into_iter()
+            .map(|(node_id, spikes)| EngineRunNeuronCount { node_id, spikes })
+            .collect(),
+        cancelled: false,
+    })
 }
 
 /// Periodically diff the live weight set against the last published one
