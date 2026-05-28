@@ -8,6 +8,7 @@
 //! `core`'s job is to make it usable from axum handlers and to plumb
 //! state in and out of the DB.
 
+pub mod recent_activity;
 pub mod spike_persist;
 pub mod weight_persist;
 
@@ -15,8 +16,9 @@ pub mod weight_persist;
 // the WS handler, etc.) doesn't need to know they originate in
 // cortex-snn. Lets us swap the substrate's serialization layer later
 // without churn across the handler layer.
-pub use hebb::engine::events::{SpikeFrame, WeightDelta, WeightFrame};
+pub use hebb::engine::events::{SpikeEvent, SpikeFrame, WeightDelta, WeightFrame};
 pub use hebb::engine::sim::SimEngine;
+pub use recent_activity::{RecentActivityBuffer, RECENT_ACTIVITY_DEFAULT_CAPACITY};
 pub use spike_persist::spawn_spike_persister;
 pub use weight_persist::spawn_weight_persister;
 
@@ -255,6 +257,16 @@ pub enum EngineCommand {
     SaveStateToOpenFolder {
         reply: oneshot::Sender<Result<Option<usize>, String>>,
     },
+    /// Read the last `limit` spike events from the engine's recent-activity
+    /// ring buffer ([C3] / hebb_app#26), optionally filtered to events at
+    /// `t_ms >= since_t_ms`. Returns events in chronological order. Used by
+    /// agent-harness read-only tools ([B2] / hebb_app#15) that need to
+    /// inspect recent firing without holding a WS subscription.
+    RecentSpikes {
+        limit: usize,
+        since_t_ms: Option<f64>,
+        reply: oneshot::Sender<Vec<SpikeEvent>>,
+    },
 }
 
 /// Returned by `AddNeuronToFolder` — enough fields to render a
@@ -406,6 +418,35 @@ impl SimHandle {
         let (tx, rx) = oneshot::channel();
         self.cmd_tx
             .send(EngineCommand::WeightSnapshot(tx))
+            .await
+            .map_err(|_| "engine offline")?;
+        rx.await.map_err(|_| "engine dropped reply")
+    }
+
+    /// Snapshot the last `limit` spike events from the engine's recent-
+    /// activity ring buffer ([C3]). `since_t_ms` filters to events at or
+    /// after the given engine clock; `None` means "no time filter, just
+    /// the last `limit`". The returned vector is ordered chronologically.
+    ///
+    /// Memory is bounded by [`RECENT_ACTIVITY_DEFAULT_CAPACITY`] (override
+    /// via the `HEBB_RECENT_ACTIVITY_CAPACITY` env var at engine spawn).
+    ///
+    /// Used by the read-only `recent_spikes` agent tool ([B2] /
+    /// hebb_app#15). Exposed now so the tool lands behind the merged
+    /// engine seam rather than coupling tool wiring to engine internals.
+    #[allow(dead_code)] // Consumed by [B2] / hebb_app#15.
+    pub async fn recent_spikes(
+        &self,
+        limit: usize,
+        since_t_ms: Option<f64>,
+    ) -> Result<Vec<SpikeEvent>, &'static str> {
+        let (tx, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(EngineCommand::RecentSpikes {
+                limit,
+                since_t_ms,
+                reply: tx,
+            })
             .await
             .map_err(|_| "engine offline")?;
         rx.await.map_err(|_| "engine dropped reply")
@@ -683,6 +724,28 @@ impl SimHandle {
     }
 }
 
+/// Resolve the recent-activity ring-buffer capacity, in events. Honors
+/// the `HEBB_RECENT_ACTIVITY_CAPACITY` env var so an operator can grow or
+/// shrink the buffer without recompiling; falls back to
+/// [`RECENT_ACTIVITY_DEFAULT_CAPACITY`] when unset or unparseable. A logged
+/// warning surfaces misconfigurations without blocking boot.
+fn recent_activity_capacity_from_env() -> usize {
+    match std::env::var("HEBB_RECENT_ACTIVITY_CAPACITY") {
+        Ok(raw) => match raw.parse::<usize>() {
+            Ok(n) if n > 0 => n,
+            _ => {
+                tracing::warn!(
+                    raw = %raw,
+                    default = RECENT_ACTIVITY_DEFAULT_CAPACITY,
+                    "HEBB_RECENT_ACTIVITY_CAPACITY must be a positive integer; using default"
+                );
+                RECENT_ACTIVITY_DEFAULT_CAPACITY
+            }
+        },
+        Err(_) => RECENT_ACTIVITY_DEFAULT_CAPACITY,
+    }
+}
+
 /// Spawn the engine task. Returns a handle plus a join handle for
 /// graceful shutdown coordination.
 pub fn spawn_engine(tick_hz: u32) -> (SimHandle, tokio::task::JoinHandle<()>) {
@@ -700,6 +763,8 @@ pub fn spawn_engine(tick_hz: u32) -> (SimHandle, tokio::task::JoinHandle<()>) {
 
     let dt_ms = 1000.0 / tick_hz as f32;
     let tick_dur = Duration::from_secs_f32(dt_ms / 1000.0);
+
+    let recent_capacity = recent_activity_capacity_from_env();
 
     let join = tokio::spawn(async move {
         let mut engine = SimEngine::new();
@@ -720,6 +785,12 @@ pub fn spawn_engine(tick_hz: u32) -> (SimHandle, tokio::task::JoinHandle<()>) {
         // stays in lockstep with SimEngine. The actor is the sole owner
         // — no other task touches the handle, so we don't need a lock.
         let mut current_cortex: Option<Cortex> = None;
+        // Recent spike history ([C3]). Lives in the actor so reads need no
+        // lock; the spike broadcast channel only delivers to live
+        // subscribers, so the agent harness reads through this buffer
+        // instead. Capacity is bounded; oldest events are evicted as new
+        // ones arrive.
+        let mut recent = RecentActivityBuffer::with_capacity(recent_capacity);
         let mut ticker = tokio::time::interval(tick_dur);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
@@ -728,6 +799,9 @@ pub fn spawn_engine(tick_hz: u32) -> (SimHandle, tokio::task::JoinHandle<()>) {
                 _ = ticker.tick() => {
                     let frame = engine.tick(dt_ms);
                     if !frame.events.is_empty() {
+                        // Record into the bounded recent-activity buffer
+                        // before sending — the broadcast moves the frame.
+                        recent.extend_spikes(frame.events.iter().cloned());
                         // best-effort broadcast; ignore lagged receivers
                         let _ = spike_tx.send(frame);
                     }
@@ -790,13 +864,9 @@ pub fn spawn_engine(tick_hz: u32) -> (SimHandle, tokio::task::JoinHandle<()>) {
                         EngineCommand::ForceSpike { node_id, reply } => {
                             let result = if engine.neurons.contains_key(&node_id) {
                                 engine.fired_prev.insert(node_id);
-                                let frame = SpikeFrame::new(
-                                    engine.t_ms,
-                                    vec![hebb::engine::events::SpikeEvent {
-                                        node_id,
-                                        t_ms: engine.t_ms,
-                                    }],
-                                );
+                                let event = SpikeEvent { node_id, t_ms: engine.t_ms };
+                                recent.push_spike(event.clone());
+                                let frame = SpikeFrame::new(engine.t_ms, vec![event]);
                                 let _ = spike_tx.send(frame);
                                 Ok(())
                             } else {
@@ -812,6 +882,7 @@ pub fn spawn_engine(tick_hz: u32) -> (SimHandle, tokio::task::JoinHandle<()>) {
                             let result = run_engine_for(
                                 &mut engine,
                                 &spike_tx,
+                                &mut recent,
                                 duration_ms,
                                 dt_ms,
                             );
@@ -1127,6 +1198,9 @@ pub fn spawn_engine(tick_hz: u32) -> (SimHandle, tokio::task::JoinHandle<()>) {
                                 },
                             };
                             let _ = reply.send(result);
+                        }
+                        EngineCommand::RecentSpikes { limit, since_t_ms, reply } => {
+                            let _ = reply.send(recent.recent_spikes(limit, since_t_ms));
                         }
                     }
                 }
@@ -1955,6 +2029,7 @@ fn open_folder_into_engine(
 fn run_engine_for(
     engine: &mut SimEngine,
     spike_tx: &broadcast::Sender<SpikeFrame>,
+    recent: &mut RecentActivityBuffer,
     duration_ms: f32,
     dt_ms: f32,
 ) -> Result<EngineRunSummary, String> {
@@ -1986,6 +2061,7 @@ fn run_engine_for(
             for event in &frame.events {
                 *counts.entry(event.node_id).or_insert(0) += 1;
             }
+            recent.extend_spikes(frame.events.iter().cloned());
             let _ = spike_tx.send(frame);
         }
     }
