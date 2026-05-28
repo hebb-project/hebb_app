@@ -77,13 +77,14 @@ impl LlmProvider for GeminiProvider {
             .map_err(|e| ProviderError::Transport(e.to_string()))?;
 
         let status = resp.status();
+        let retry_after = parse_retry_after(resp.headers());
         let text = resp
             .text()
             .await
             .map_err(|e| ProviderError::Transport(e.to_string()))?;
 
         if !status.is_success() {
-            return Err(classify_http_error(status.as_u16(), &text));
+            return Err(classify_http_error(status.as_u16(), &text, retry_after));
         }
 
         let wire: GeminiResponseBody = serde_json::from_str(&text)
@@ -93,8 +94,14 @@ impl LlmProvider for GeminiProvider {
 }
 
 /// Map a non-2xx HTTP response to a typed error, pulling Gemini's
-/// `error.message` when present.
-fn classify_http_error(status: u16, body: &str) -> ProviderError {
+/// `error.message` when present. The retry classifier ([A6]) decides
+/// what's worth a second attempt — this just picks the variant; see
+/// [`ProviderError::is_retryable`].
+fn classify_http_error(
+    status: u16,
+    body: &str,
+    retry_after: Option<std::time::Duration>,
+) -> ProviderError {
     let message = serde_json::from_str::<GeminiErrorEnvelope>(body)
         .ok()
         .map(|e| e.error.message)
@@ -102,8 +109,23 @@ fn classify_http_error(status: u16, body: &str) -> ProviderError {
     match status {
         400 => ProviderError::InvalidRequest(message),
         401 | 403 => ProviderError::Auth(message),
+        429 => ProviderError::RateLimit {
+            message,
+            retry_after,
+        },
+        500..=599 => ProviderError::Transient(format!("HTTP {status}: {message}")),
         _ => ProviderError::Provider(format!("HTTP {status}: {message}")),
     }
+}
+
+/// Parse a `Retry-After` header value as seconds. Gemini sends an integer
+/// seconds count rather than the HTTP-date alternative the spec permits,
+/// so we only handle the seconds case — an unparseable header yields
+/// `None` and the retry loop falls back to exponential backoff.
+fn parse_retry_after(headers: &reqwest::header::HeaderMap) -> Option<std::time::Duration> {
+    let raw = headers.get(reqwest::header::RETRY_AFTER)?.to_str().ok()?;
+    let secs: u64 = raw.trim().parse().ok()?;
+    Some(std::time::Duration::from_secs(secs))
 }
 
 // ---------------------------------------------------------------------------
@@ -511,9 +533,70 @@ mod tests {
     #[test]
     fn http_errors_are_classified() {
         let body = r#"{"error": {"code": 403, "message": "API key not valid", "status": "PERMISSION_DENIED"}}"#;
-        assert!(matches!(classify_http_error(403, body), ProviderError::Auth(m) if m.contains("not valid")));
-        assert!(matches!(classify_http_error(400, body), ProviderError::InvalidRequest(_)));
-        assert!(matches!(classify_http_error(503, body), ProviderError::Provider(_)));
+        assert!(matches!(
+            classify_http_error(403, body, None),
+            ProviderError::Auth(m) if m.contains("not valid")
+        ));
+        assert!(matches!(
+            classify_http_error(400, body, None),
+            ProviderError::InvalidRequest(_)
+        ));
+    }
+
+    /// 5xx maps to `Transient` so the retry loop ([A6]) backs off and
+    /// tries again; the message preserves the HTTP status for debugging.
+    #[test]
+    fn five_hundreds_classify_as_transient() {
+        let body = r#"{"error": {"code": 503, "message": "backend overloaded"}}"#;
+        for status in [500, 502, 503, 504] {
+            let err = classify_http_error(status, body, None);
+            assert!(
+                matches!(&err, ProviderError::Transient(m) if m.contains(&status.to_string())),
+                "expected Transient for {status}, got {err:?}"
+            );
+            assert!(err.is_retryable());
+        }
+    }
+
+    /// 429 maps to `RateLimit`; a `Retry-After` header threads through
+    /// to the variant so the retry helper honours it verbatim.
+    #[test]
+    fn rate_limited_passes_retry_after_through() {
+        let body = r#"{"error": {"code": 429, "message": "quota exceeded"}}"#;
+        let hint = std::time::Duration::from_secs(7);
+        let err = classify_http_error(429, body, Some(hint));
+        let ProviderError::RateLimit { retry_after, message } = err else {
+            panic!("expected RateLimit");
+        };
+        assert_eq!(retry_after, Some(hint));
+        assert_eq!(message, "quota exceeded");
+    }
+
+    /// 4xx codes we don't model explicitly stay in the unclassified
+    /// `Provider` bucket (not retried).
+    #[test]
+    fn unmodeled_4xx_stays_in_provider_bucket() {
+        let body = r#"{"error": {"code": 404, "message": "model not found"}}"#;
+        let err = classify_http_error(404, body, None);
+        assert!(matches!(&err, ProviderError::Provider(m) if m.contains("404")));
+        assert!(!err.is_retryable());
+    }
+
+    #[test]
+    fn parse_retry_after_handles_integer_seconds() {
+        use reqwest::header::{HeaderMap, HeaderValue, RETRY_AFTER};
+        let mut h = HeaderMap::new();
+        h.insert(RETRY_AFTER, HeaderValue::from_static("12"));
+        assert_eq!(parse_retry_after(&h), Some(std::time::Duration::from_secs(12)));
+
+        // Non-numeric (e.g. HTTP-date format) yields None — caller falls
+        // back to exponential backoff.
+        let mut h = HeaderMap::new();
+        h.insert(RETRY_AFTER, HeaderValue::from_static("Wed, 21 Oct 2026 07:28:00 GMT"));
+        assert!(parse_retry_after(&h).is_none());
+
+        // Missing header.
+        assert!(parse_retry_after(&HeaderMap::new()).is_none());
     }
 
     /// Live smoke test against the real Gemini API. Ignored by default; run with
