@@ -23,7 +23,9 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 pub mod gemini;
+pub mod retry;
 pub use gemini::GeminiProvider;
+pub use retry::{retry_with_backoff, RetryConfig};
 
 /// Who authored a message in the conversation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
