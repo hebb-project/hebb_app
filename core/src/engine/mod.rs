@@ -1900,6 +1900,56 @@ mod tests {
 
         std::fs::remove_dir_all(&root).ok();
     }
+
+    /// Recent-activity ring buffer captures spikes from a forced spike
+    /// without needing a live broadcast subscriber. Proves the agent
+    /// harness path ([B2]) can read recent firing through `recent_spikes`
+    /// alone.
+    #[tokio::test]
+    async fn recent_spikes_records_forced_firing_without_subscriber() {
+        let (handle, _join) = spawn_engine(1000);
+        let id = Uuid::new_v4();
+        handle.add_node(id).await.unwrap();
+
+        // No `handle.spikes.subscribe()` — purely the recent-activity
+        // path. ForceSpike runs synchronously inside the actor so the
+        // buffer is populated by the time the reply returns.
+        handle.force_spike(id).await.unwrap();
+
+        let recent = handle.recent_spikes(10, None).await.unwrap();
+        assert_eq!(recent.len(), 1, "expected one forced spike");
+        assert_eq!(recent[0].node_id, id);
+    }
+
+    /// `since_t_ms` filter excludes events older than the threshold.
+    #[tokio::test]
+    async fn recent_spikes_since_filter_excludes_older_events() {
+        let (handle, _join) = spawn_engine(1000);
+        let a = Uuid::new_v4();
+        let b = Uuid::new_v4();
+        handle.add_node(a).await.unwrap();
+        handle.add_node(b).await.unwrap();
+
+        handle.force_spike(a).await.unwrap();
+        // Advance engine clock so the second spike has a strictly later
+        // t_ms. `run_for` ticks the SimEngine in place; with no input
+        // current neither neuron will fire on its own, so the recent
+        // buffer's only new entry is from the second ForceSpike.
+        handle.run_for(50.0, 1.0).await.unwrap();
+        handle.force_spike(b).await.unwrap();
+
+        let all = handle.recent_spikes(10, None).await.unwrap();
+        assert_eq!(all.len(), 2);
+        let t_a = all[0].t_ms;
+        let t_b = all[1].t_ms;
+        assert!(t_b > t_a, "second spike should have a later engine t_ms");
+
+        // Filtering at the midpoint should drop the first spike.
+        let cutoff = (t_a + t_b) / 2.0;
+        let recent = handle.recent_spikes(10, Some(cutoff)).await.unwrap();
+        assert_eq!(recent.len(), 1);
+        assert_eq!(recent[0].node_id, b);
+    }
 }
 
 /// Open a `.cortex/` folder via the substrate's [`hebb::Cortex`]
