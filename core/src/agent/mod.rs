@@ -25,12 +25,14 @@
 // stays useful for catching *unintentional* dead code elsewhere in `core`.
 #![allow(dead_code, unused_imports)]
 
+pub mod keys;
 pub mod permission;
 pub mod provider;
 pub mod registry;
 pub mod tool;
 pub mod tools;
 
+pub use keys::provider_key_from_env;
 pub use permission::Permission;
 pub use provider::{
     ChatMessage, ChatRequest, ChatResponse, FinishReason, GenerationConfig, LlmProvider,
