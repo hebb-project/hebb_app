@@ -251,25 +251,76 @@ pub struct ChatResponse {
     pub finish_reason: FinishReason,
 }
 
-/// Errors a provider can surface. Intentionally small for `#8`; `#13`
-/// extends this with rate-limit/transient classification and backoff.
+/// Errors a provider can surface. Classification is what the retry loop
+/// (`#13`) branches on — see [`ProviderError::is_retryable`] and
+/// [`ProviderError::retry_after`].
 #[derive(Debug, thiserror::Error)]
 pub enum ProviderError {
-    /// Authentication failed (missing/invalid API key). Not retryable.
+    /// Authentication failed (missing/invalid API key). Not retryable —
+    /// retrying will not change the answer; surface to the UI immediately.
     #[error("provider auth failed: {0}")]
     Auth(String),
-    /// The request was rejected as malformed (bad model id, unsupported field).
+    /// The request was rejected as malformed (bad model id, unsupported
+    /// field). Not retryable — retrying will not change the answer.
     #[error("invalid request: {0}")]
     InvalidRequest(String),
-    /// Transport / network failure talking to the provider.
+    /// Transport / network failure talking to the provider. Retryable —
+    /// a TCP reset, DNS hiccup, or proxy blip should not bubble up as a
+    /// hard failure to the user the first time.
     #[error("transport error: {0}")]
     Transport(String),
-    /// The provider returned a response we couldn't parse into neutral types.
+    /// The provider returned a response we couldn't parse into neutral
+    /// types. Not retryable — the bug is in our decoder or the provider's
+    /// wire format, not in the network.
     #[error("could not parse provider response: {0}")]
     Decode(String),
-    /// Provider-side error not otherwise classified (5xx, quota, etc.).
+    /// Provider-side rate limit / quota response (typically HTTP 429).
+    /// Retryable. `retry_after` carries the server's hint (the
+    /// `Retry-After` header) when present; the retry loop should honour
+    /// it instead of its own backoff schedule.
+    #[error("rate limited: {message}")]
+    RateLimit {
+        message: String,
+        retry_after: Option<std::time::Duration>,
+    },
+    /// Transient provider failure (typically HTTP 5xx, timeouts).
+    /// Retryable with exponential backoff.
+    #[error("transient provider error: {0}")]
+    Transient(String),
+    /// Provider-side error not otherwise classified — bucket for shapes
+    /// we don't model explicitly. Not retried by default to avoid
+    /// hammering a provider with a request it has already rejected for a
+    /// non-transient reason.
     #[error("provider error: {0}")]
     Provider(String),
+}
+
+impl ProviderError {
+    /// True if the retry loop should attempt this call again. Drives the
+    /// `retry_with_backoff` decision tree alongside the configured retry
+    /// budget.
+    ///
+    /// Retryable: [`Self::RateLimit`], [`Self::Transient`], [`Self::Transport`].
+    /// Not retryable: [`Self::Auth`], [`Self::InvalidRequest`],
+    /// [`Self::Decode`], [`Self::Provider`].
+    pub fn is_retryable(&self) -> bool {
+        matches!(
+            self,
+            ProviderError::RateLimit { .. }
+                | ProviderError::Transient(_)
+                | ProviderError::Transport(_)
+        )
+    }
+
+    /// The provider's explicit "wait at least this long" hint, if any.
+    /// Currently only [`Self::RateLimit`] carries this — `Retry-After`
+    /// headers are the only place providers reliably set it.
+    pub fn retry_after(&self) -> Option<std::time::Duration> {
+        match self {
+            ProviderError::RateLimit { retry_after, .. } => *retry_after,
+            _ => None,
+        }
+    }
 }
 
 /// The contract every LLM provider implements. One method: take a neutral
@@ -387,6 +438,36 @@ mod tests {
                 finish_reason: FinishReason::Stop,
             })
         }
+    }
+
+    #[test]
+    fn is_retryable_matches_classification_table() {
+        // Retryable.
+        assert!(ProviderError::Transport("eof".into()).is_retryable());
+        assert!(ProviderError::Transient("5xx".into()).is_retryable());
+        assert!(ProviderError::RateLimit {
+            message: "slow down".into(),
+            retry_after: None,
+        }
+        .is_retryable());
+        // Not retryable.
+        assert!(!ProviderError::Auth("bad key".into()).is_retryable());
+        assert!(!ProviderError::InvalidRequest("bad model".into()).is_retryable());
+        assert!(!ProviderError::Decode("bad json".into()).is_retryable());
+        assert!(!ProviderError::Provider("safety".into()).is_retryable());
+    }
+
+    #[test]
+    fn retry_after_only_set_for_rate_limit() {
+        let d = std::time::Duration::from_secs(2);
+        let rl = ProviderError::RateLimit {
+            message: "wait".into(),
+            retry_after: Some(d),
+        };
+        assert_eq!(rl.retry_after(), Some(d));
+
+        assert!(ProviderError::Transient("x".into()).retry_after().is_none());
+        assert!(ProviderError::Transport("x".into()).retry_after().is_none());
     }
 
     #[tokio::test]
